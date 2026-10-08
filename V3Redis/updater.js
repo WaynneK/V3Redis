@@ -11,8 +11,10 @@
  *     L'installation se fait sur demande (« Installer et redémarrer »), JAMAIS à la fermeture : V3Redis se ferme
  *     juste après avoir lancé une application, et une application en cours d'exécution ne peut pas être remplacée.
  *     Avant d'installer, on vérifie qu'aucune application livrée n'est ouverte.
- *   - Autres cas (Linux hors AppImage…) : mode « notify ». La nouvelle version est signalée, la page de la
- *     release s'ouvre ; l'installation reste manuelle.
+ *   - Linux (AppImage) : mode « auto » aussi (latest-linux.yml) : l'AppImage est remplacée puis relancée.
+ *   - macOS et autres cas : mode « notify ». La nouvelle version est signalée et la page de la release s'ouvre ;
+ *     l'installation reste manuelle. (La mise à jour automatique sur macOS exige une application signée par un
+ *     compte développeur Apple.)
  *   - Développement (npm start) : désactivé, sauf V3REDIS_UPDATE_URL=<adresse> (serveur de test « generic »),
  *     qui permet de tester la vérification et le téléchargement sans rien installer.
  *
@@ -35,7 +37,12 @@ let send = () => {};
 let autoUpdater = null;
 let timer = null;
 let checking = null;
-let bundledExes = []; // [{ name, exe }] : applications livrées dans le paquet (vérifiées avant l'installation)
+let bundledExes = []; // [{ name, exe, id }] : applications livrées dans le paquet (vérifiées avant l'installation)
+let bundleRoot = null; // dossier des applications livrées (resources/apps)
+
+function setBundleRoot(dir) {
+  bundleRoot = dir || null;
+}
 
 const status = {
   mode: 'disabled', // 'auto' | 'notify' | 'disabled'
@@ -185,9 +192,37 @@ function parseTasklist(text) {
   return names;
 }
 
+/**
+ * Linux / macOS : identifiants des applications livrées en cours d'exécution, d'après le chemin de leur
+ * processus (ps), qui commence par <dossier des applications>/<id>/.
+ */
+function runningBundledIds() {
+  if (process.platform === 'win32' || !bundleRoot) return Promise.resolve(new Set());
+  return new Promise((resolve) => {
+    execFile('ps', ['-A', '-o', 'args='], { timeout: 10000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+      resolve(err ? new Set() : parsePsBundled(stdout, bundleRoot));
+    });
+  });
+}
+
+/** Lignes de « ps -o args= » → identifiants des applications lancées depuis bundleRoot. */
+function parsePsBundled(text, root) {
+  const ids = new Set();
+  const prefix = String(root).replace(/[/\\]+$/, '') + '/';
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const s = line.trim();
+    if (s.startsWith(prefix)) ids.add(s.slice(prefix.length).split('/')[0]);
+  }
+  return ids;
+}
+
 async function openBundledApps() {
-  const running = await runningExeNames();
-  return bundledExes.filter((a) => running.has(String(a.exe).toLowerCase())).map((a) => a.name);
+  if (process.platform === 'win32') {
+    const running = await runningExeNames();
+    return bundledExes.filter((a) => running.has(String(a.exe).toLowerCase())).map((a) => a.name);
+  }
+  const ids = await runningBundledIds();
+  return bundledExes.filter((a) => ids.has(a.id)).map((a) => a.name);
 }
 
 // --- API -------------------------------------------------------------------------------------------------
@@ -268,4 +303,4 @@ function start(sendStatus, apps) {
   if (timer.unref) timer.unref();
 }
 
-module.exports = { start, check, install, openReleasePage, getStatus, isNewer, plainNotes, parseTasklist, OWNER, REPO };
+module.exports = { start, check, install, openReleasePage, getStatus, setBundleRoot, isNewer, plainNotes, parseTasklist, parsePsBundled, OWNER, REPO };

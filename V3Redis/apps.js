@@ -13,7 +13,9 @@
  *   downloadUrl  page de téléchargement (seuls ces liens peuvent être ouverts par le HUB)
  *   windows      { displayName, exe, defaultDir } : nom dans « Applications installées »,
  *                exécutable dans le dossier d'installation, dossier par défaut de l'installeur
- *   linux        { appImagePrefix } : début du nom de l'AppImage (ex. « SysInfo-Lite- »)
+ *   linux        { appImagePrefix, bin } : début du nom de l'AppImage (ex. « SysInfo-Lite- ») ;
+ *                bin : exécutable de l'application livrée avec le HUB (« executableName » Linux du projet)
+ *   mac          { app } : nom du paquet .app (productName du projet), livré avec le HUB ou dans /Applications
  *   local        projet voisin du HUB (même dossier parent), utilisé quand l'application n'est pas
  *                installée : { project: nom du dossier, winExe: exécutables compilés (chemins relatifs),
  *                winPortable / appImage : motifs des fichiers de dist/, winInstaller : motif de l'installeur }
@@ -38,6 +40,10 @@ module.exports = [
     },
     linux: {
       appImagePrefix: 'SysInfo-Lite-',
+      bin: 'sysinfo-lite', // à confirmer quand le projet SysInfo Lite sera de retour (executableName Linux)
+    },
+    mac: {
+      app: 'SysInfo Lite.app',
     },
     local: {
       project: 'SysInfoLite',
@@ -64,6 +70,10 @@ module.exports = [
     },
     linux: {
       appImagePrefix: 'CalkIP-',
+      bin: 'calkip',
+    },
+    mac: {
+      app: 'CalkIP.app',
     },
     local: {
       project: 'CalkIP',
@@ -90,6 +100,10 @@ module.exports = [
     },
     linux: {
       appImagePrefix: 'PredF-',
+      bin: 'predf',
+    },
+    mac: {
+      app: 'PredF.app',
     },
     local: {
       project: 'PredF',
@@ -116,6 +130,10 @@ module.exports = [
     },
     linux: {
       appImagePrefix: 'Agepede-',
+      bin: 'agepede',
+    },
+    mac: {
+      app: 'Agépédé.app',
     },
     local: {
       project: 'Agépédé',

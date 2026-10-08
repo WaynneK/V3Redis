@@ -1,0 +1,123 @@
+# Release « tout en un » de V3Redis pour Windows, Linux et macOS.
+#
+# Déclenchement : onglet Actions › Release › « Run workflow » (ou pousser un tag « vX.Y.Z » identique à la
+# version de V3Redis/package.json). Résultat : une release BROUILLON « vX.Y.Z » contenant les paquets ;
+# il reste à la vérifier puis à cliquer sur « Publish release ».
+#   - Windows : V3Redis-Setup-X.Y.Z.exe (+ .blockmap, latest.yml)        → mises à jour automatiques
+#   - Linux   : V3Redis-X.Y.Z-x86_64.AppImage (+ .blockmap, latest-linux.yml) → mises à jour automatiques
+#   - macOS   : V3Redis-X.Y.Z-arm64.dmg (Apple Silicon) et -x64.dmg (Intel) → nouvelle version signalée
+#
+# SysInfo Lite : son code n'est pas dans ce dépôt. Si le secret SYSINFOLITE_TOKEN (jeton en lecture sur
+# WaynneK/SysInfoLite) est défini, il est récupéré et inclus ; sinon les paquets Linux et macOS sont construits
+# sans lui, et le paquet Windows n'est pas construit ici (il retirerait SysInfo Lite des PC à la mise à jour) :
+# il se construit sur le PC (npm run build dans V3Redis) et ses 3 fichiers s'ajoutent à la release brouillon.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Release brouillon
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Version de V3Redis
+        run: |
+          VERSION=$(node -p "require('./V3Redis/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v$VERSION" ]; then
+            echo "::error::Le tag ${GITHUB_REF_NAME} ne correspond pas à la version de V3Redis/package.json (v$VERSION)."
+            exit 1
+          fi
+      - name: Créer la release brouillon (si elle n'existe pas)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release view "v$VERSION" >/dev/null 2>&1 || \
+            gh release create "v$VERSION" --draft --title "V3Redis $VERSION" --target "$GITHUB_SHA" \
+              --notes "Paquets Windows, Linux et macOS de V3Redis $VERSION (avec ses applications)."
+
+  build:
+    name: ${{ matrix.name }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            arch: x64
+          - name: Linux
+            os: ubuntu-latest
+            arch: x64
+          - name: macOS (Apple Silicon)
+            os: macos-latest
+            arch: arm64
+          - name: macOS (Intel)
+            os: macos-latest
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false' # pas de certificat de signature (macOS)
+      HAS_SYSINFO: ${{ secrets.SYSINFOLITE_TOKEN != '' }}
+      # Windows sans SysInfo Lite : la mise à jour retirerait SysInfo Lite des PC qui l'ont déjà. Le paquet
+      # Windows est alors construit sur le PC de développement (npm run build) et ajouté à la release à la main.
+      BUILD: ${{ matrix.os != 'windows-latest' || secrets.SYSINFOLITE_TOKEN != '' }}
+    steps:
+      - name: Windows ignoré (SysInfo Lite indisponible ici)
+        if: env.BUILD != 'true'
+        run: |
+          echo "::notice::Paquet Windows non construit ici (SysInfo Lite absent) : construisez-le sur le PC (npm run build dans V3Redis) et ajoutez ses 3 fichiers à la release."
+
+      - uses: actions/checkout@v4
+        if: env.BUILD == 'true'
+
+      - name: SysInfo Lite (dépôt séparé)
+        if: env.BUILD == 'true' && env.HAS_SYSINFO == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: WaynneK/SysInfoLite
+          token: ${{ secrets.SYSINFOLITE_TOKEN }}
+          path: SysInfoLite
+
+      - uses: actions/setup-node@v4
+        if: env.BUILD == 'true'
+        with:
+          node-version: 22
+
+      - name: Dépendances
+        if: env.BUILD == 'true'
+        run: |
+          for dir in CalkIP PredF Agépédé SysInfoLite V3Redis; do
+            if [ -f "$dir/package.json" ]; then
+              echo "::group::npm ci — $dir"
+              (cd "$dir" && npm ci --no-audit --no-fund)
+              echo "::endgroup::"
+            fi
+          done
+
+      - name: Tests
+        if: env.BUILD == 'true' && runner.os == 'Windows'
+        run: |
+          for dir in CalkIP PredF Agépédé V3Redis; do
+            (cd "$dir" && npm test)
+          done
+
+      - name: Paquet « tout en un » et envoi dans la release
+        if: env.BUILD == 'true'
+        working-directory: V3Redis
+        run: node scripts/build-setup.js --publish --skip-missing --arch ${{ matrix.arch }}

@@ -64,14 +64,29 @@ livrées ne cherchent pas de mise à jour de leur côté (SysInfo Lite le détec
 - si une application est lancée pendant un téléchargement, V3Redis (caché) le termine avant de se fermer ;
 - V3Redis installé avant la 0.2.0 n'a pas ce système : installer une fois la 0.2.0 à la main.
 
-**Publier une mise à jour** :
+**Selon le système** :
 
-1. Augmenter la version dans `package.json` (ex. `0.2.1`) et, si besoin, celles des applications modifiées.
-2. `npm run build` → `dist\V3Redis-Setup-0.2.1.exe`, `dist\V3Redis-Setup-0.2.1.exe.blockmap` et `dist\latest.yml`.
-3. Sur github.com/WaynneK/V3Redis (dépôt **public**) : *Releases* → *Draft a new release*, tag `v0.2.1`, notes
-   (affichées dans V3Redis), joindre **les 3 fichiers** ci-dessus, *Publish release*.
-   Ou bien `npm run release` avec la variable `GH_TOKEN` (jeton GitHub « contents: write ») : la release est créée en
-   brouillon avec les fichiers, il reste à la publier. Une release en brouillon ou « pre-release » n'est pas proposée.
+| | Paquet | Applications livrées | Mise à jour |
+|---|---|---|---|
+| Windows | installeur NSIS (`V3Redis-Setup-X.Y.Z.exe`) | `resources\apps\<id>\` (dossiers « win-unpacked ») | automatique (`latest.yml`) |
+| Linux | AppImage (`V3Redis-X.Y.Z-x86_64.AppImage`) | `resources/apps/<id>/` (dossiers « linux-unpacked ») | automatique (`latest-linux.yml`) |
+| macOS | image disque (`V3Redis-X.Y.Z-arm64.dmg` / `-x64.dmg`) | `V3Redis.app/Contents/Resources/apps/<id>/<Nom>.app` | signalée : page de la release ouverte |
+
+- **Linux** : une application livrée vit dans le système de fichiers monté par l'AppImage de V3Redis, qui disparaît
+  quand V3Redis se ferme. Après un lancement, V3Redis reste donc ouvert, caché, tant que l'application tourne.
+- **macOS** : sans compte développeur Apple, les paquets ont une signature locale (« ad hoc ») ; la mise à jour
+  automatique, qui exige une vraie signature, est remplacée par un lien vers la nouvelle version.
+- Les chemins propres à chaque système sont dans `platforms.js` (exécutable Linux et nom du paquet .app : `apps.js`).
+
+**Publier une mise à jour** (procédure complète : `README.md` à la racine du dépôt) :
+
+1. Augmenter la version dans `package.json` (ex. `0.13.1`) et, si besoin, celles des applications modifiées ; pousser.
+2. GitHub › **Actions** › **Release** › **Run workflow** (`.github/workflows/release.yml`) : paquets Linux et macOS
+   déposés dans la release brouillon `v0.13.1`.
+3. Windows (SysInfo Lite n'est disponible que sur le PC) : `npm run build`, puis ajouter à la release
+   `dist\V3Redis-Setup-0.13.1.exe`, son `.blockmap` et `dist\latest.yml`.
+4. Notes de version (affichées dans V3Redis) puis *Publish release*. Une release en brouillon ou « pre-release »
+   n'est pas proposée aux V3Redis installés.
 
 **Tester sans GitHub** : `V3REDIS_UPDATE_URL=http://127.0.0.1:<port>/ npm start` avec un serveur local qui sert
 `latest.yml` et l'installeur ; la vérification et le téléchargement fonctionnent, l'installation est refusée (mode test).

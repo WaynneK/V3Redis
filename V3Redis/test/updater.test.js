@@ -39,6 +39,21 @@ test('parseTasklist : noms des exécutables (CSV, sans en-tête)', () => {
   assert.equal(U.parseTasklist('').size, 0);
 });
 
+test('parsePsBundled : applications livrées ouvertes (Linux / macOS)', () => {
+  const root = '/tmp/.mount_V3RediAbC/resources/apps';
+  const ps = [
+    '/usr/lib/systemd/systemd --user',
+    `${root}/calkip/calkip --no-sandbox`,
+    `${root}/calkip/calkip --type=renderer`,
+    `${root}/predf/predf`,
+    '/opt/autre/predf',
+  ].join('\n');
+  assert.deepEqual([...U.parsePsBundled(ps, root)].sort(), ['calkip', 'predf']);
+  const mac = '/Applications/V3Redis.app/Contents/Resources/apps/agepede/Agépédé.app/Contents/MacOS/Agepede';
+  assert.deepEqual([...U.parsePsBundled(mac, '/Applications/V3Redis.app/Contents/Resources/apps/')], ['agepede']);
+  assert.equal(U.parsePsBundled('', root).size, 0);
+});
+
 test('dépôt des mises à jour', () => {
   assert.equal(U.OWNER, 'WaynneK');
   assert.equal(U.REPO, 'V3Redis');

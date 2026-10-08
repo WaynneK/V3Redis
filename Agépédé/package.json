@@ -68,6 +68,11 @@
     "portable": {
       "artifactName": "Agepede-Portable-${version}.${ext}"
     },
+    "mac": {
+      "category": "public.app-category.utilities",
+      "identity": "-",
+      "hardenedRuntime": false
+    },
     "linux": {
       "target": [
         "AppImage"

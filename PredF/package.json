@@ -78,6 +78,11 @@
     "portable": {
       "artifactName": "PredF-Portable-${version}.${ext}"
     },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": "-",
+      "hardenedRuntime": false
+    },
     "linux": {
       "target": [
         "AppImage"

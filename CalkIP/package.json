@@ -65,6 +65,11 @@
     "portable": {
       "artifactName": "CalkIP-Portable-${version}.${ext}"
     },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "identity": "-",
+      "hardenedRuntime": false
+    },
     "linux": {
       "target": [
         "AppImage"

@@ -1,7 +1,7 @@
 {
   "name": "hub",
   "productName": "V3Redis",
-  "version": "0.12.2",
+  "version": "0.13.0",
   "description": "Point d'entrée vers les applications (SysInfo Lite, CalkIP, PredF, Agépédé), mises à jour en un seul paquet.",
   "main": "main.js",
   "author": "WaynneK",
@@ -18,7 +18,7 @@
     "test": "node --test",
     "build": "node scripts/build-setup.js",
     "build:skip-apps": "node scripts/build-setup.js --skip-apps",
-    "build:hub-only": "electron-builder --win --publish never",
+    "build:hub-only": "electron-builder --publish never",
     "release": "node scripts/build-setup.js --publish",
     "installer:art": "electron scripts/make-installer-art.js"
   },
@@ -56,6 +56,7 @@
       "main.js",
       "preload.js",
       "apps.js",
+      "platforms.js",
       "updater.js",
       "renderer/**/*",
       "package.json"
@@ -86,12 +87,26 @@
       "installerHeader": "build/installerHeader.bmp",
       "artifactName": "V3Redis-Setup-${version}.${ext}"
     },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.utilities",
+      "artifactName": "V3Redis-${version}-${arch}.${ext}",
+      "identity": "-",
+      "hardenedRuntime": false
+    },
     "linux": {
       "target": [
         "AppImage"
       ],
       "category": "Utility",
+      "executableName": "v3redis",
+      "synopsis": "V3Redis et ses applications, en un seul paquet",
       "artifactName": "V3Redis-${version}-x86_64.${ext}"
+    },
+    "dmg": {
+      "title": "V3Redis ${version}"
     }
   },
   "dependencies": {

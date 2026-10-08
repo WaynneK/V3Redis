@@ -26,9 +26,11 @@ const { execFile, spawn } = require('node:child_process');
 const { fileURLToPath } = require('node:url');
 const APPS = require('./apps.js');
 const Updater = require('./updater.js');
+const Platforms = require('./platforms.js');
 
 const IS_WIN = process.platform === 'win32';
 const IS_LINUX = process.platform === 'linux';
+const IS_MAC = process.platform === 'darwin';
 const INDEX_FILE = path.join(__dirname, 'renderer', 'index.html');
 
 let mainWindow = null;
@@ -67,6 +69,34 @@ async function isFile(file) {
   } catch {
     return false;
   }
+}
+
+/** Application lançable : un fichier (Windows, Linux) ou un paquet .app, qui est un dossier (macOS). */
+async function isLaunchable(target) {
+  try {
+    const st = await fs.stat(target);
+    return IS_MAC && /\.app$/i.test(target) ? st.isDirectory() : st.isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** macOS : version d'un paquet .app (Contents/Info.plist). */
+async function macAppVersion(appPath) {
+  try {
+    return Platforms.plistVersion(await fs.readFile(path.join(appPath, 'Contents', 'Info.plist'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/** macOS : application installée dans /Applications ou ~/Applications. */
+async function findMacApp(spec) {
+  for (const dir of ['/Applications', path.join(app.getPath('home'), 'Applications')]) {
+    const target = path.join(dir, spec.app);
+    if (await isLaunchable(target)) return { path: target, version: await macAppVersion(target), source: 'défaut' };
+  }
+  return null;
 }
 
 function runCommand(cmd, args, timeout = 5000) {
@@ -153,7 +183,7 @@ async function findAppImage(spec) {
 async function detect(entry) {
   if (entry.status !== 'available') return { installed: false };
   const manual = settings.paths[entry.id];
-  if (manual && (await isFile(manual))) return { installed: true, path: manual, version: null, source: 'manuel' };
+  if (manual && (await isLaunchable(manual))) return { installed: true, path: manual, version: null, source: 'manuel' };
   if (IS_WIN && entry.windows) {
     let found = await findInRegistry(entry.windows);
     if (!found) {
@@ -168,15 +198,19 @@ async function detect(entry) {
       return { installed: true, ...found };
     }
   }
-  if (IS_LINUX && entry.linux) {
-    const found = await findAppImage(entry.linux);
-    if (found) return { installed: true, ...found };
+  if ((IS_LINUX && entry.linux) || (IS_MAC && entry.mac)) {
+    const found = IS_LINUX ? await findAppImage(entry.linux) : await findMacApp(entry.mac);
+    if (found) {
+      const bundled = await findBundled(entry);
+      if (bundled && isNewer(bundled.version, found.version)) return { installed: true, ...bundled };
+      return { installed: true, ...found };
+    }
   }
-  // Livrée avec le HUB (installeur « 2 en 1 ») : resources\apps\<id>\
+  // Livrée avec le HUB (paquet « tout en un ») : resources/apps/<id>/
   const bundled = await findBundled(entry);
   if (bundled) return { installed: true, ...bundled };
   // Pas installée : version compilée dans le dossier de son projet (à côté du HUB)
-  const build = await findLocalBuild(entry.local);
+  const build = await findLocalBuild(entry);
   if (build) return { installed: true, ...build };
   return { installed: false };
 }
@@ -206,10 +240,11 @@ function isNewer(a, b) {
 }
 
 async function findBundled(entry) {
-  if (!IS_WIN || !BUNDLE_ROOT || !entry.windows) return null;
+  const rel = Platforms.bundledEntry(entry, process.platform);
+  if (!BUNDLE_ROOT || !rel) return null;
   const dir = path.join(BUNDLE_ROOT, entry.id);
-  const exe = path.join(dir, entry.windows.exe);
-  if (!(await isFile(exe))) return null;
+  const exe = path.join(dir, rel);
+  if (!(await isLaunchable(exe))) return null;
   let version = null;
   try {
     version = JSON.parse(await fs.readFile(path.join(dir, 'hub-bundle.json'), 'utf8')).version || null;
@@ -249,7 +284,8 @@ async function newestInDist(dir, pattern) {
   return best ? best.file : null;
 }
 
-async function findLocalBuild(local) {
+async function findLocalBuild(entry) {
+  const local = entry.local;
   if (!PROJECTS_ROOT || !local) return null;
   const dir = path.join(PROJECTS_ROOT, local.project);
   const candidates = [];
@@ -257,10 +293,15 @@ async function findLocalBuild(local) {
     for (const rel of local.winExe || []) candidates.push(path.join(dir, rel));
     candidates.push(await newestInDist(dir, local.winPortable));
   } else if (IS_LINUX) {
+    if (entry.linux && entry.linux.bin) {
+      for (const arch of ['x64', 'arm64']) candidates.push(path.join(dir, 'dist', Platforms.unpackedDir('linux', arch), entry.linux.bin));
+    }
     candidates.push(await newestInDist(dir, local.appImage));
+  } else if (IS_MAC && entry.mac) {
+    for (const arch of ['arm64', 'x64', 'universal']) candidates.push(path.join(dir, 'dist', Platforms.unpackedDir('darwin', arch), entry.mac.app));
   }
   for (const file of candidates) {
-    if (file && (await isFile(file))) return { path: file, version: await projectVersion(dir), source: 'build' };
+    if (file && (await isLaunchable(file))) return { path: file, version: await projectVersion(dir), source: 'build' };
   }
   return null;
 }
@@ -307,18 +348,24 @@ async function launch(id) {
   if (!entry || entry.status !== 'available') return { ok: false, error: 'Application inconnue ou pas encore disponible.' };
   const state = await detect(entry);
   if (!state.installed) return { ok: false, error: `${entry.name} n'est pas installé (ou introuvable).` };
-  if (IS_LINUX) await fs.chmod(state.path, 0o755).catch(() => {}); // AppImage copiée sans droit d'exécution
+  if (IS_LINUX && state.source !== 'hub') await fs.chmod(state.path, 0o755).catch(() => {}); // AppImage copiée sans droit d'exécution
+  // Linux : une application livrée avec le HUB vit dans le système de fichiers monté par l'AppImage du HUB,
+  // qui disparaît quand le HUB se ferme. Le HUB reste donc ouvert (caché) tant qu'elle tourne.
+  const fromHubMount = IS_LINUX && Boolean(process.env.APPIMAGE) && state.source === 'hub';
+  // macOS : un paquet .app s'ouvre avec « open » (l'application devient indépendante du HUB)
+  const [cmd, args] = IS_MAC && /\.app$/i.test(state.path) ? ['open', [state.path]] : [state.path, []];
   // Appelé par l'interface À LA FIN de l'animation de lancement : l'application démarre seulement maintenant
   return new Promise((resolve) => {
     try {
       // Processus indépendant : l'application continue après la fermeture de V3Redis
-      const child = spawn(state.path, [], { cwd: path.dirname(state.path), detached: true, stdio: 'ignore', windowsHide: false });
+      const child = spawn(cmd, args, { cwd: path.dirname(state.path), detached: true, stdio: 'ignore', windowsHide: false });
       child.once('error', (err) => resolve({ ok: false, error: `Lancement impossible : ${err.message}` }));
       child.once('spawn', () => {
         child.unref();
         const launchId = ++launchCounter;
+        const exited = new Promise((r) => child.once('exit', r));
         // Surveillance de la fenêtre de l'application : V3Redis ne se ferme qu'une fois qu'elle est affichée
-        pendingLaunches.set(launchId, waitForWindow(child.pid));
+        pendingLaunches.set(launchId, { shown: waitForWindow(child.pid), exited, fromHubMount });
         resolve({ ok: true, name: entry.name, launchId });
       });
     } catch (err) {
@@ -376,7 +423,13 @@ async function retreat(launchId) {
   win.hide();
   const waiting = pendingLaunches.get(launchId);
   pendingLaunches.delete(launchId);
-  if (waiting) await waiting;
+  if (waiting) await waiting.shown;
+  // Linux, application livrée dans l'AppImage du HUB : on attend qu'elle se ferme (sinon ses fichiers disparaîtraient)
+  if (waiting && waiting.fromHubMount) {
+    let done = false;
+    waiting.exited.then(() => (done = true));
+    while (!revived && !done) await new Promise((r) => setTimeout(r, 1000));
+  }
   // Mise à jour en cours de téléchargement : V3Redis (caché) la termine avant de se fermer (20 min au plus)
   const deadline = Date.now() + 20 * 60 * 1000;
   while (!revived && Updater.getStatus().state === 'downloading' && Date.now() < deadline) await new Promise((r) => setTimeout(r, 1000));
@@ -406,7 +459,13 @@ async function install(id) {
 async function chooseExecutable(id) {
   const entry = findEntry(id);
   if (!entry || entry.status !== 'available') return { ok: false, error: 'Application inconnue.' };
-  const filters = IS_WIN ? [{ name: 'Programme', extensions: ['exe'] }] : IS_LINUX ? [{ name: 'AppImage', extensions: ['AppImage'] }, { name: 'Tous les fichiers', extensions: ['*'] }] : [];
+  const filters = IS_WIN
+    ? [{ name: 'Programme', extensions: ['exe'] }]
+    : IS_LINUX
+      ? [{ name: 'AppImage', extensions: ['AppImage'] }, { name: 'Tous les fichiers', extensions: ['*'] }]
+      : IS_MAC
+        ? [{ name: 'Application', extensions: ['app'] }]
+        : [];
   const res = await dialog.showOpenDialog(mainWindow, { title: `Où se trouve ${entry.name} ?`, properties: ['openFile'], filters });
   if (res.canceled || !res.filePaths[0]) return { ok: false, canceled: true };
   settings.paths[id] = res.filePaths[0];
@@ -480,7 +539,8 @@ let updaterStarted = false;
 function startUpdater() {
   if (updaterStarted) return;
   updaterStarted = true;
-  const bundled = APPS.filter((a) => a.status === 'available' && a.windows && a.windows.exe).map((a) => ({ name: a.name, exe: a.windows.exe }));
+  const bundled = APPS.filter((a) => a.status === 'available' && a.windows && a.windows.exe).map((a) => ({ name: a.name, exe: a.windows.exe, id: a.id }));
+  Updater.setBundleRoot(BUNDLE_ROOT);
   Updater.start((s) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:status', s);
   }, bundled);
