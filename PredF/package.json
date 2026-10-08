@@ -1,0 +1,94 @@
+{
+  "name": "predf",
+  "productName": "PredF",
+  "version": "1.0.0",
+  "description": "Fusion et conversion de PDF, 100 % hors ligne : fusionner, organiser, découper, convertir, compresser.",
+  "main": "main.js",
+  "author": "WaynneK",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node --test",
+    "build": "electron-builder --publish never",
+    "build:win": "electron-builder --win --publish never",
+    "build:linux": "electron-builder --linux --publish never"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.1",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.4.299"
+  },
+  "build": {
+    "appId": "com.waynnek.predf",
+    "productName": "PredF",
+    "copyright": "© WaynneK",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "icon": "build/icon.png",
+    "files": [
+      "main.js",
+      "preload.js",
+      "preload-splash.js",
+      "lib/**/*",
+      "renderer/**/*",
+      "package.json",
+      "!**/*.map",
+      "!node_modules/pdfjs-dist/legacy/**",
+      "!node_modules/pdfjs-dist/web/**",
+      "!node_modules/pdfjs-dist/types/**",
+      "!node_modules/pdfjs-dist/image_decoders/**",
+      "!node_modules/pdfjs-dist/build/*.min.mjs",
+      "!node_modules/pdfjs-dist/build/pdf.sandbox*",
+      "!node_modules/pdf-lib/dist/**",
+      "!node_modules/pdf-lib/es/**",
+      "!node_modules/pdf-lib/src/**",
+      "!node_modules/pdf-lib/ts3.4/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PredF",
+      "artifactName": "PredF-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "PredF-Portable-${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office",
+      "executableName": "predf",
+      "artifactName": "PredF-${version}-x86_64.${ext}"
+    }
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3"
+  }
+}

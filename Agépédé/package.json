@@ -1,0 +1,80 @@
+{
+  "name": "agepede",
+  "productName": "Agépédé",
+  "version": "1.0.2",
+  "description": "Création d'OU, de groupes globaux et domaine local, d'appartenances AGDLP et de permissions NTFS dans Active Directory à partir de tableaux.",
+  "main": "main.js",
+  "author": "WaynneK",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node --test",
+    "build": "electron-builder --publish never",
+    "build:win": "electron-builder --win --publish never",
+    "build:dir": "electron-builder --win dir --publish never",
+    "build:linux": "electron-builder --linux --publish never",
+    "guide:captures": "electron scripts/capture-guide.js"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.waynnek.agepede",
+    "productName": "Agépédé",
+    "executableName": "Agepede",
+    "copyright": "© WaynneK",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "icon": "build/icon.png",
+    "files": [
+      "main.js",
+      "preload.js",
+      "preload-splash.js",
+      "lib/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Agépédé",
+      "artifactName": "Agepede-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Agepede-Portable-${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "System",
+      "executableName": "agepede",
+      "artifactName": "Agepede-${version}-x86_64.${ext}"
+    }
+  }
+}

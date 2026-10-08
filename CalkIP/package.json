@@ -1,0 +1,77 @@
+{
+  "name": "calkip",
+  "productName": "CalkIP",
+  "version": "1.0.0",
+  "description": "Calculatrice IPv4 hors ligne : réseau, masque, plage d'hôtes, baux DHCP et export .txt des adresses.",
+  "main": "main.js",
+  "author": "WaynneK",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node --test",
+    "build": "electron-builder --publish never",
+    "build:win": "electron-builder --win --publish never",
+    "build:linux": "electron-builder --linux --publish never"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.waynnek.calkip",
+    "productName": "CalkIP",
+    "copyright": "© WaynneK",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "icon": "build/icon.png",
+    "files": [
+      "main.js",
+      "preload.js",
+      "preload-splash.js",
+      "lib/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CalkIP",
+      "artifactName": "CalkIP-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "CalkIP-Portable-${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Network",
+      "executableName": "calkip",
+      "artifactName": "CalkIP-${version}-x86_64.${ext}"
+    }
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "name": "hub",
+  "productName": "V3Redis",
+  "version": "0.12.2",
+  "description": "Point d'entrée vers les applications (SysInfo Lite, CalkIP, PredF, Agépédé), mises à jour en un seul paquet.",
+  "main": "main.js",
+  "author": "WaynneK",
+  "license": "MIT",
+  "private": true,
+  "homepage": "https://github.com/WaynneK/V3Redis",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WaynneK/V3Redis.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node --test",
+    "build": "node scripts/build-setup.js",
+    "build:skip-apps": "node scripts/build-setup.js --skip-apps",
+    "build:hub-only": "electron-builder --win --publish never",
+    "release": "node scripts/build-setup.js --publish",
+    "installer:art": "electron scripts/make-installer-art.js"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.waynnek.hub",
+    "productName": "V3Redis",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "icon": "build/icon.png",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "WaynneK",
+        "repo": "V3Redis",
+        "releaseType": "draft"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "bundle",
+        "to": "apps",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "files": [
+      "main.js",
+      "preload.js",
+      "apps.js",
+      "updater.js",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "include": "build/installer.nsh",
+      "installerLanguages": [
+        "fr_FR"
+      ],
+      "language": "1036",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/installerSidebar.bmp",
+      "installerHeader": "build/installerHeader.bmp",
+      "artifactName": "V3Redis-Setup-${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility",
+      "artifactName": "V3Redis-${version}-x86_64.${ext}"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}

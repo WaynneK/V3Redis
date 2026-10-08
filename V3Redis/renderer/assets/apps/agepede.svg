@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbbf24" />
+      <stop offset="0.55" stop-color="#f59e0b" />
+      <stop offset="1" stop-color="#ea580c" />
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#g)" />
+  <!-- Arborescence de l'annuaire : le domaine, deux OU -->
+  <path d="M32 21v7M19 28h26M19 28v6M45 28v6" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.85" />
+  <rect x="24" y="11" width="16" height="10" rx="3" fill="#fff" />
+  <path d="M28 16h8" stroke="#ea580c" stroke-width="2" stroke-linecap="round" />
+  <!-- Groupe global (deux personnes) -->
+  <rect x="9" y="34" width="20" height="17" rx="4" fill="#fff" opacity="0.95" />
+  <circle cx="16" cy="40" r="2.6" fill="#f59e0b" />
+  <circle cx="22.5" cy="40" r="2.6" fill="#ea580c" />
+  <path d="M12 48c0-3 1.8-4.5 4-4.5s4 1.5 4 4.5M18.5 48c0-3 1.8-4.5 4-4.5s4 1.5 4 4.5" fill="none" stroke="#ea580c" stroke-width="1.8" stroke-linecap="round" />
+  <!-- Groupe domaine local (bouclier de droits) -->
+  <rect x="35" y="34" width="20" height="17" rx="4" fill="#fff" opacity="0.95" />
+  <path d="M45 37.5l5 1.8v3.6c0 3.2-2.2 5.2-5 6.1-2.8-.9-5-2.9-5-6.1v-3.6z" fill="#f59e0b" />
+  <path d="M42.8 42.9l1.6 1.6 3-3.2" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

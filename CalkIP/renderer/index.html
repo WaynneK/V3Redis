@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <!-- 100 % local : aucune connexion (connect-src 'none'), aucune ressource externe -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CalkIP</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <img src="assets/logo.svg" alt="" class="brand-logo" />
+        <div>
+          <h1>CalkIP</h1>
+          <p class="brand-sub">Calculatrice IPv4 · baux DHCP · export .txt</p>
+        </div>
+      </div>
+      <nav class="tabs" role="tablist" aria-label="Vues de CalkIP">
+        <button type="button" role="tab" id="tab-calc" data-view="calc" aria-controls="view-calc" aria-selected="true" data-tip="Ctrl + 1">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2.5" /><path d="M8.5 7h7M8.5 11h.01M12 11h.01M15.5 11h.01M8.5 14.5h.01M12 14.5h.01M15.5 14.5h.01M8.5 18h.01M12 18h3.5" /></svg>
+          Calculatrice
+        </button>
+        <button type="button" role="tab" id="tab-binary" data-view="binary" aria-controls="view-binary" aria-selected="false" data-tip="Ctrl + 2">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4v6M4.5 4H6M4.5 10h3M14 4h4v6h-4zM6 14h4v6H6zM16 14v6M14.5 14H16M14.5 20h3" /></svg>
+          Binaire
+        </button>
+      </nav>
+      <div class="topbar-right">
+        <span class="badge offline" data-tip="CalkIP ne se connecte jamais à Internet : tous les calculs sont faits sur cet ordinateur.">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 8.8a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0" /><path d="M3 3l18 18" /></svg>
+          100 % local
+        </span>
+        <button id="theme" class="btn ghost" type="button" aria-label="Changer de thème">Thème : système</button>
+      </div>
+    </header>
+
+    <div class="layout" id="view-calc" role="tabpanel" aria-labelledby="tab-calc">
+      <!-- ===================== Saisie ===================== -->
+      <aside class="panel form">
+        <section class="card">
+          <label class="label" for="ip">Adresse IPv4</label>
+          <input id="ip" class="ip-input mono" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="192.168.1.10" aria-describedby="ip-help ip-error" />
+          <p id="ip-help" class="help">Formats acceptés : <code>192.168.1.10</code>, <code>192.168.1.10/26</code> ou <code>192.168.1.10 255.255.255.192</code></p>
+          <p id="ip-error" class="error" role="alert" hidden></p>
+
+          <div class="label-row">
+            <span class="label" id="mode-label">Préfixe (taille du réseau)</span>
+          </div>
+          <div class="segmented" role="radiogroup" aria-labelledby="mode-label" id="mode">
+            <button type="button" role="radio" data-mode="auto" aria-checked="true">Auto</button>
+            <button type="button" role="radio" data-mode="8" aria-checked="false">/8</button>
+            <button type="button" role="radio" data-mode="16" aria-checked="false">/16</button>
+            <button type="button" role="radio" data-mode="24" aria-checked="false">/24</button>
+            <button type="button" role="radio" data-mode="32" aria-checked="false">/32</button>
+            <button type="button" role="radio" data-mode="custom" aria-checked="false">Autre</button>
+          </div>
+          <div class="custom-prefix" id="custom-row" hidden>
+            <label for="custom-prefix">Préfixe personnalisé</label>
+            <select id="custom-prefix"></select>
+          </div>
+          <p class="help" id="mode-help"></p>
+
+          <details class="hosts-helper">
+            <summary>Je connais le nombre d'appareils à connecter</summary>
+            <div class="hosts-row">
+              <input id="hosts" type="number" min="1" step="1" placeholder="ex. 50" aria-label="Nombre d'hôtes nécessaires" />
+              <button id="hosts-apply" class="btn" type="button" disabled>Appliquer</button>
+            </div>
+            <p class="help" id="hosts-result">Indiquez combien d'adresses vous faut-il : CalkIP choisit le plus petit réseau suffisant.</p>
+          </details>
+        </section>
+
+        <section class="card">
+          <h2 class="card-title">Baux DHCP</h2>
+          <p class="help">Réglez ce qui ne doit pas être distribué : le résultat donne le maximum de baux disponibles.</p>
+
+          <span class="label" id="gw-label">Passerelle (routeur)</span>
+          <div class="radio-list" role="radiogroup" aria-labelledby="gw-label">
+            <label><input type="radio" name="gateway" value="first" checked /> Première adresse</label>
+            <label><input type="radio" name="gateway" value="last" /> Dernière adresse</label>
+            <label><input type="radio" name="gateway" value="custom" /> Autre :</label>
+            <label><input type="radio" name="gateway" value="none" /> Aucune</label>
+          </div>
+          <input id="custom-gateway" class="mono" type="text" placeholder="192.168.1.254" aria-label="Adresse de la passerelle" spellcheck="false" hidden />
+
+          <label class="field">
+            <span class="label">Nombre de baux souhaité</span>
+            <input id="lease-limit" type="number" min="1" step="1" placeholder="vide = le maximum possible" />
+          </label>
+          <p class="help">La plage DHCP et la liste exportée s'arrêtent à ce nombre ; le reste du réseau reste libre.</p>
+
+          <div class="two">
+            <label class="field">
+              <span class="label">Réservées au début</span>
+              <input id="reserve-start" type="number" min="0" step="1" value="0" />
+            </label>
+            <label class="field">
+              <span class="label">Réservées à la fin</span>
+              <input id="reserve-end" type="number" min="0" step="1" value="0" />
+            </label>
+          </div>
+          <p class="help">Adresses fixes (serveurs, imprimantes…) gardées hors de la plage DHCP.</p>
+
+          <label class="field">
+            <span class="label">Exclusions</span>
+            <textarea id="exclusions" class="mono" rows="3" spellcheck="false" placeholder="192.168.1.50&#10;192.168.1.100-120"></textarea>
+          </label>
+          <p class="help">Une adresse ou une plage par ligne (<code>a.b.c.d-e</code> ou <code>a.b.c.d-a.b.c.d</code>). <code>#</code> pour commenter.</p>
+          <p id="dhcp-error" class="error" role="alert" hidden></p>
+        </section>
+
+        <section class="card" id="history-card" hidden>
+          <div class="card-title-row">
+            <h2 class="card-title">Historique</h2>
+            <button id="history-clear" class="btn ghost small" type="button">Effacer</button>
+          </div>
+          <div id="history" class="chips"></div>
+        </section>
+      </aside>
+
+      <!-- ===================== Résultats ===================== -->
+      <main class="panel results" id="results">
+        <div class="empty" id="empty">
+          <img src="assets/logo.svg" alt="" />
+          <h2>Saisissez une adresse IPv4</h2>
+          <p>Le calcul se fait pendant la frappe. Exemple : <button type="button" class="link" data-example="192.168.1.10">192.168.1.10</button>, <button type="button" class="link" data-example="10.0.0.1">10.0.0.1</button>, <button type="button" class="link" data-example="172.16.20.5/22">172.16.20.5/22</button></p>
+        </div>
+
+        <div id="output" hidden>
+          <section class="hero card">
+            <div class="hero-main">
+              <div class="hero-net mono" id="hero-net"></div>
+              <div class="hero-tags" id="hero-tags"></div>
+            </div>
+            <div class="stats">
+              <div class="stat accent">
+                <span class="stat-value mono" id="stat-leases"></span>
+                <span class="stat-label" id="stat-leases-label">Baux DHCP maximum</span>
+              </div>
+              <div class="stat">
+                <span class="stat-value mono" id="stat-usable"></span>
+                <span class="stat-label">Hôtes utilisables</span>
+              </div>
+              <div class="stat">
+                <span class="stat-value mono" id="stat-total"></span>
+                <span class="stat-label">Adresses au total</span>
+              </div>
+            </div>
+            <p class="note" id="role-note" hidden></p>
+          </section>
+
+          <div class="grid">
+            <section class="card">
+              <h2 class="card-title">Réseau</h2>
+              <table class="kv" id="network-table"></table>
+            </section>
+
+            <section class="card">
+              <h2 class="card-title">Plage DHCP</h2>
+              <div class="poolbar" id="poolbar" aria-hidden="true"></div>
+              <div class="legend" id="pool-legend"></div>
+              <table class="kv" id="pool-table"></table>
+              <ul class="notes" id="pool-notes"></ul>
+            </section>
+
+            <section class="card span">
+              <h2 class="card-title">Exporter</h2>
+              <div class="export-grid">
+                <div>
+                  <span class="label">Contenu de la liste</span>
+                  <div class="radio-list">
+                    <label><input type="radio" name="scope" value="pool" checked /> Baux DHCP disponibles <span class="muted" id="scope-pool-count"></span></label>
+                    <label><input type="radio" name="scope" value="usable" /> Toutes les adresses utilisables <span class="muted" id="scope-usable-count"></span></label>
+                  </div>
+                  <label class="check"><input type="checkbox" id="numbered" /> Numéroter les lignes</label>
+                </div>
+                <div class="export-actions">
+                  <p class="estimate" id="estimate"></p>
+                  <div class="actions">
+                    <button id="export-list" class="btn primary" type="button">Exporter la liste (.txt)</button>
+                    <button id="export-summary" class="btn" type="button">Exporter le résumé</button>
+                    <button id="copy-summary" class="btn" type="button">Copier le résumé</button>
+                  </div>
+                  <p class="help">Raccourci : <kbd>Ctrl</kbd> + <kbd>S</kbd> pour exporter la liste.</p>
+                </div>
+              </div>
+              <div class="progress" id="progress" hidden>
+                <div class="progress-head">
+                  <span id="progress-text">Export en cours…</span>
+                  <button id="export-cancel" class="btn ghost small" type="button">Annuler</button>
+                </div>
+                <div class="progress-track"><span id="progress-bar"></span></div>
+              </div>
+              <p class="done" id="export-done" hidden></p>
+            </section>
+
+            <section class="card span">
+              <div class="card-title-row">
+                <h2 class="card-title">Binaire</h2>
+                <button id="open-binary" class="btn small" type="button">Voir le calcul pas à pas →</button>
+              </div>
+              <table class="kv binary" id="binary-table"></table>
+              <p class="help"><span class="bits-net-sample">bits réseau</span> · <span class="bits-host-sample">bits hôtes</span></p>
+            </section>
+
+            <section class="card span">
+              <div class="card-title-row">
+                <h2 class="card-title">Découpage en sous-réseaux</h2>
+                <div class="split-controls">
+                  <label for="split-prefix">Découper en</label>
+                  <select id="split-prefix"></select>
+                  <button id="export-split" class="btn small" type="button">Exporter (.txt)</button>
+                </div>
+              </div>
+              <p class="help" id="split-info"></p>
+              <div class="table-wrap">
+                <table class="data" id="split-table"></table>
+              </div>
+              <button id="split-more" class="btn ghost small" type="button" hidden>Afficher plus</button>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- ===================== Binaire ===================== -->
+    <div class="binview" id="view-binary" role="tabpanel" aria-labelledby="tab-binary" hidden>
+      <div class="bin-wrap">
+        <section class="card bin-head">
+          <div class="bin-intro">
+            <h2>Calcul binaire</h2>
+            <p>Comprendre et vérifier un calcul d'adresse IP bit par bit : inversez des bits, déplacez la limite réseau / hôte et suivez chaque étape du calcul.</p>
+          </div>
+          <div class="bin-controls">
+            <label class="field bin-ip-field">
+              <span class="label">Adresse IPv4</span>
+              <input id="b-ip" class="ip-input mono" type="text" autocomplete="off" spellcheck="false" placeholder="192.168.1.10/26" aria-describedby="b-error" />
+            </label>
+            <div class="field bin-prefix-field">
+              <span class="label">Préfixe <output id="b-prefix-out" class="prefix-out mono">/26</output> <span id="b-mask-out" class="muted"></span></span>
+              <div class="prefix-row">
+                <button id="b-prefix-dec" class="btn small square" type="button" aria-label="Préfixe moins un">−</button>
+                <input id="b-prefix" class="range" type="range" min="0" max="32" step="1" aria-label="Préfixe" />
+                <button id="b-prefix-inc" class="btn small square" type="button" aria-label="Préfixe plus un">+</button>
+              </div>
+            </div>
+            <button id="b-sync" class="btn" type="button" data-tip="Charge l'adresse et le préfixe de l'onglet Calculatrice">Reprendre la calculatrice</button>
+          </div>
+          <p id="b-error" class="error" role="alert" hidden></p>
+        </section>
+
+        <section class="card" id="workshop-card">
+          <div class="card-title-row">
+            <h2 class="card-title">Atelier bit à bit</h2>
+            <div class="legend-inline">
+              <span><i class="sw net"></i>Partie réseau</span>
+              <span><i class="sw host"></i>Partie hôte</span>
+              <span><i class="sw one"></i>Bit à 1</span>
+            </div>
+          </div>
+          <p class="help">Cliquez sur un bit de l'<strong>adresse</strong> pour l'inverser, sur le <strong>masque</strong> pour déplacer la limite réseau / hôte. Les lignes du dessous se recalculent aussitôt.</p>
+          <div class="board-wrap"><div class="board" id="board"></div></div>
+          <p class="bit-info" id="bit-info">Survolez un bit pour voir sa position, son poids et le calcul de la colonne.</p>
+          <div class="board-results" id="board-results"></div>
+        </section>
+
+        <section class="card" id="steps-card">
+          <div class="card-title-row">
+            <h2 class="card-title">Étape par étape</h2>
+            <div class="actions">
+              <label class="check inline"><input type="checkbox" id="steps-all" /> Tout afficher</label>
+              <button id="steps-copy" class="btn small" type="button">Copier</button>
+              <button id="steps-export" class="btn small" type="button">Exporter (.txt)</button>
+            </div>
+          </div>
+          <ol class="stepper" id="stepper"></ol>
+          <div class="step-body" id="step-body" aria-live="polite"></div>
+          <div class="step-nav" id="step-nav">
+            <button id="step-prev" class="btn" type="button">← Précédent</button>
+            <span id="step-count" class="step-count"></span>
+            <button id="step-next" class="btn primary" type="button">Suivant →</button>
+          </div>
+        </section>
+
+        <div class="grid bin-grid">
+          <section class="card">
+            <div class="card-title-row">
+              <h2 class="card-title">Convertisseur</h2>
+              <span class="muted" id="conv-format"></span>
+            </div>
+            <input id="conv-in" class="mono" type="text" autocomplete="off" spellcheck="false" placeholder="192.168.1.10 · 11000000.10101000.00000001.00001010 · 0xC0A8010A" aria-describedby="conv-error" />
+            <p class="help">Décimal pointé, binaire (avec ou sans points), hexadécimal ou entier : le format est reconnu tout seul.</p>
+            <p id="conv-error" class="error" role="alert" hidden></p>
+            <table class="kv conv" id="conv-table"></table>
+            <button id="conv-use" class="btn small" type="button" hidden>Étudier cette adresse dans l'atelier</button>
+          </section>
+
+          <section class="card">
+            <h2 class="card-title">Un octet à la loupe</h2>
+            <div class="octet-bits" id="octet-bits"></div>
+            <div class="octet-row">
+              <label class="field">
+                <span class="label">Décimal (0 à 255)</span>
+                <input id="octet-dec" type="number" min="0" max="255" step="1" />
+              </label>
+              <div class="octet-out" id="octet-out"></div>
+            </div>
+            <p class="octet-sum mono" id="octet-sum"></p>
+            <p class="help" id="octet-mask"></p>
+          </section>
+        </div>
+
+        <section class="card" id="train-card">
+          <div class="card-title-row">
+            <h2 class="card-title">Entraînement</h2>
+            <div class="segmented compact" role="radiogroup" aria-label="Niveau" id="train-level">
+              <button type="button" role="radio" data-level="facile" aria-checked="false">Facile</button>
+              <button type="button" role="radio" data-level="moyen" aria-checked="true">Moyen</button>
+              <button type="button" role="radio" data-level="expert" aria-checked="false">Expert</button>
+            </div>
+          </div>
+          <p class="help" id="train-help"></p>
+          <div class="train-q">
+            <span>Calculez pour</span>
+            <strong class="mono" id="train-ip"></strong>
+            <span class="muted" id="train-score"></span>
+          </div>
+          <div class="train-grid" id="train-grid"></div>
+          <p class="train-result" id="train-result" role="status" hidden></p>
+          <div class="actions">
+            <button id="train-check" class="btn primary" type="button">Vérifier</button>
+            <button id="train-reveal" class="btn" type="button">Voir la correction</button>
+            <button id="train-explain" class="btn" type="button" hidden>Calcul pas à pas de cet exercice</button>
+            <button id="train-new" class="btn ghost" type="button">Nouvel exercice</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2 class="card-title">Mémo</h2>
+          <div class="memo-grid">
+            <div>
+              <h3 class="memo-title">Puissances de 2</h3>
+              <div class="table-wrap memo-wrap"><table class="data memo" id="memo-pow"></table></div>
+            </div>
+            <div>
+              <h3 class="memo-title">Octets de masque</h3>
+              <table class="data memo" id="memo-mask"></table>
+              <h3 class="memo-title">Opérations logiques</h3>
+              <ul class="memo-ops">
+                <li><strong>ET</strong> (AND) : 1 seulement si les deux bits valent 1 → <em>adresse réseau</em></li>
+                <li><strong>OU</strong> (OR) : 1 si au moins un bit vaut 1 → <em>diffusion</em></li>
+                <li><strong>NON</strong> (NOT) : inverse chaque bit → <em>wildcard</em></li>
+              </ul>
+            </div>
+            <div>
+              <h3 class="memo-title">Préfixes <span class="muted">(cliquez pour l'appliquer)</span></h3>
+              <div class="table-wrap memo-wrap"><table class="data memo clickable" id="memo-cidr"></table></div>
+            </div>
+            <div>
+              <h3 class="memo-title">Masque pour N machines</h3>
+              <div class="hosts-row">
+                <input id="memo-hosts" type="number" min="1" step="1" placeholder="ex. 50" aria-label="Nombre de machines" />
+                <button id="memo-hosts-apply" class="btn" type="button" disabled>Appliquer</button>
+              </div>
+              <div class="memo-hosts-out mono" id="memo-hosts-out"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+
+    <script src="../lib/ipcalc.js"></script>
+    <script src="../lib/binary.js"></script>
+    <script src="binary-view.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

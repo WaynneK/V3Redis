@@ -1,0 +1,7 @@
+# Dépendances et sorties de compilation (de tous les projets)
+node_modules/
+dist/
+dist-test/
+dist-tmp/
+V3Redis/bundle/
+*.log

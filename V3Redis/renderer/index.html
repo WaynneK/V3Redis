@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>V3Redis</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- Ciel étoilé animé (étoiles en parallaxe, scintillement, étoiles filantes) -->
+    <canvas id="stars" aria-hidden="true"></canvas>
+    <div class="nebula" aria-hidden="true"></div>
+
+    <div class="app">
+      <!-- En-tête = barre de titre : se glisse pour déplacer la fenêtre, double-clic pour l'agrandir -->
+      <header class="topbar">
+        <div class="brand">
+          <img src="assets/logo.svg" alt="" class="brand-logo" />
+          <div>
+            <h1>V3Redis</h1>
+            <p class="brand-sub" id="app-count">Vos applications</p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <!-- Mises à jour du paquet (V3Redis + applications) : version, progression, « Installer » -->
+          <button id="update-chip" class="update-chip" type="button" aria-haspopup="dialog" aria-controls="update-panel" hidden>
+            <span class="uc-icon" aria-hidden="true"></span>
+            <span id="update-chip-text"></span>
+            <span class="uc-bar" aria-hidden="true"><span id="update-chip-bar"></span></span>
+          </button>
+          <button id="refresh" class="icon-btn" type="button" aria-label="Actualiser la détection" data-tip="Actualiser la détection">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></svg>
+          </button>
+          <span class="topbar-sep" aria-hidden="true"></span>
+          <div class="window-controls" role="group" aria-label="Fenêtre">
+            <button id="win-min" class="win-btn" type="button" aria-label="Réduire">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12" /></svg>
+            </button>
+            <button id="win-close" class="win-btn close" type="button" aria-label="Fermer">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" /></svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="stage">
+        <p class="eyebrow">Choisissez une application</p>
+
+        <!-- Sélecteur : toutes les applications côte à côte (survol, clic pour choisir, double-clic pour lancer) -->
+        <div class="cards" id="track" role="listbox" aria-label="Applications"></div>
+
+        <!-- Détails de l'application choisie -->
+        <section class="details" id="details" aria-live="polite">
+          <div class="details-main">
+            <div class="details-head">
+              <h2 id="d-name"></h2>
+              <span class="pill" id="d-status"></span>
+            </div>
+            <p class="details-desc" id="d-desc"></p>
+            <ul class="features" id="d-features"></ul>
+            <p class="details-path" id="d-path"></p>
+          </div>
+          <div class="details-actions" id="d-actions"></div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Scène de lancement : icône au centre, anneaux, particules en orbite, état -->
+    <div class="launch-stage" id="launch-stage" hidden>
+      <div class="ls-core">
+        <div class="ls-rings" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div class="ls-orbit ls-orbit-1" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="ls-orbit ls-orbit-2" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <div class="ls-flash" aria-hidden="true"></div>
+        <img class="ls-icon" id="ls-icon" alt="" />
+      </div>
+      <div class="ls-text" role="status" aria-live="polite">
+        <strong id="ls-name"></strong>
+        <span id="ls-status"></span>
+      </div>
+      <div class="ls-bar" aria-hidden="true"><span></span></div>
+    </div>
+
+    <!-- Panneau des mises à jour : état, progression, nouveautés, contenu du paquet, actions -->
+    <section class="update-panel" id="update-panel" role="dialog" aria-labelledby="up-title" hidden>
+      <header class="up-head">
+        <img src="assets/logo.svg" alt="" class="up-logo" />
+        <div>
+          <h2 id="up-title">Mises à jour</h2>
+          <p class="up-sub">V3Redis et ses applications, en un seul paquet</p>
+        </div>
+        <button id="up-close" class="win-btn" type="button" aria-label="Fermer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" /></svg>
+        </button>
+      </header>
+      <p class="up-state" id="up-state" role="status" aria-live="polite"></p>
+      <div class="up-progress" id="up-progress" hidden><span id="up-progress-bar"></span></div>
+      <p class="up-detail" id="up-detail"></p>
+      <div class="up-notes" id="up-notes" hidden>
+        <h3 id="up-notes-title">Nouveautés</h3>
+        <p id="up-notes-text"></p>
+      </div>
+      <h3 class="up-apps-title">Contenu du paquet installé</h3>
+      <ul class="up-apps" id="up-apps"></ul>
+      <div class="up-actions" id="up-actions"></div>
+    </section>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+
+    <script src="stars.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,1324 @@
+/* HUB — interface sombre, ciel étoilé, sélecteur 3D. Polices système (aucune ressource externe). */
+
+:root {
+  --bg: #05060f;
+  --panel: rgba(16, 18, 38, 0.58);
+  --panel-strong: rgba(20, 22, 46, 0.78);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text: #eef0ff;
+  --muted: #9ba1c6;
+  --faint: #6b7096;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --info: #60a5fa;
+  /* Couleur de l'application choisie (mise à jour par app.js) */
+  --accent: #8b6dff;
+  --accent-rgb: 139, 109, 255;
+  --font: 'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system, 'Ubuntu', 'Cantarell', 'Noto Sans', sans-serif;
+  --mono: 'Cascadia Mono', Consolas, 'DejaVu Sans Mono', monospace;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------ Fond */
+
+#stars {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+
+/* Nébuleuse : deux halos fixes + un halo teinté par l'application choisie */
+.nebula {
+  position: fixed;
+  inset: -20%;
+  z-index: 0;
+  background:
+    radial-gradient(40% 35% at 30% 30%, rgba(var(--accent-rgb), 0.16), transparent 70%),
+    radial-gradient(35% 30% at 78% 70%, rgba(34, 211, 238, 0.08), transparent 70%),
+    radial-gradient(45% 40% at 60% 20%, rgba(124, 92, 255, 0.07), transparent 70%);
+  filter: blur(20px);
+  transition: background 900ms var(--ease);
+  animation: nebula-drift 40s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes nebula-drift {
+  to {
+    transform: translate(3%, -2%) scale(1.05);
+  }
+}
+
+/* ------------------------------------------------------------------ Structure */
+
+.app {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+
+/* En-tête = barre de titre de la fenêtre (frameless) : zone de déplacement, sauf les boutons */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 16px 28px;
+  -webkit-app-region: drag;
+}
+
+.topbar button {
+  -webkit-app-region: no-drag;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-sep {
+  width: 1px;
+  height: 22px;
+  background: var(--border-strong);
+}
+
+.window-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.win-btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
+}
+
+.win-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.win-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.win-btn.close:hover {
+  background: #e5484d;
+  color: #fff;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-logo {
+  width: 40px;
+  height: 40px;
+  filter: drop-shadow(0 0 14px rgba(124, 92, 255, 0.55));
+}
+
+.brand h1 {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.brand-sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: color 200ms, border-color 200ms, transform 200ms var(--ease);
+}
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.icon-btn.spin svg {
+  animation: spin 700ms var(--ease);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 0 28px 28px;
+  overflow: hidden;
+}
+
+.eyebrow {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------------ Sélecteur : boîtes côte à côte */
+
+/* Une seule rangée : les boîtes rétrécissent quand il y a beaucoup d'applications ou une fenêtre étroite */
+.cards {
+  display: flex;
+  justify-content: center;
+  gap: 22px;
+  width: 100%;
+  max-width: 1240px;
+  margin-top: 22px;
+  perspective: 1200px;
+}
+
+/* .card : la boîte (soulevée au survol) ; .card-face : son visuel (incliné sous la souris) */
+.card {
+  flex: 0 1 290px;
+  min-width: 0;
+  height: 320px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: transform 350ms var(--ease);
+}
+
+.card:hover,
+.card:focus-visible {
+  transform: translateY(-8px);
+}
+
+.card-face {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  padding: 38px 26px 26px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 26px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01) 60%), var(--panel);
+  backdrop-filter: blur(16px);
+  text-align: center;
+  transition: transform 180ms ease-out, border-color 300ms, box-shadow 400ms, background 300ms;
+}
+
+/* Survol : bordure teintée de la couleur de l'application */
+.card:hover .card-face,
+.card:focus-visible .card-face {
+  border-color: rgba(var(--card-rgb), 0.45);
+  background: linear-gradient(160deg, rgba(var(--card-rgb), 0.1), rgba(255, 255, 255, 0.01) 60%), var(--panel);
+}
+
+/* Choisie : bordure et lueur de la couleur de l'application */
+.card.active .card-face {
+  border-color: rgba(var(--card-rgb), 0.7);
+  box-shadow:
+    0 0 0 1px rgba(var(--card-rgb), 0.3),
+    0 24px 60px -18px rgba(var(--card-rgb), 0.55);
+}
+
+.card-check {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: transparent;
+  transition: background 300ms, border-color 300ms, color 300ms, transform 300ms var(--ease);
+}
+
+.card-check svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.card.active .card-check {
+  border-color: transparent;
+  background: rgb(var(--card-rgb));
+  color: #0b0c1a;
+  transform: scale(1.05);
+}
+
+.card-icon {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  transition: transform 450ms var(--ease);
+}
+
+.card:hover .card-icon {
+  transform: translateY(-4px) scale(1.04);
+}
+
+.card-name {
+  position: relative;
+  margin-top: 22px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.card-tagline {
+  position: relative;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.card .pill {
+  position: relative;
+  margin-top: auto;
+}
+
+.card.soon .card-icon {
+  filter: grayscale(0.7);
+}
+
+/* ------------------------------------------------------------------ Pastilles d'état */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pill::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.pill.ok {
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--ok);
+}
+
+.pill.ok::before {
+  box-shadow: 0 0 10px var(--ok);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+.pill.ready {
+  background: rgba(96, 165, 250, 0.12);
+  color: var(--info);
+}
+
+.pill.missing {
+  background: rgba(251, 191, 36, 0.1);
+  color: var(--warn);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* ------------------------------------------------------------------ Détails */
+
+.details {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  width: 100%;
+  max-width: 900px;
+  margin-top: 48px; /* espace net entre les boîtes et le panneau */
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--panel-strong);
+  backdrop-filter: blur(18px);
+}
+
+.details.swap .details-main,
+.details.swap .details-actions {
+  animation: swap-in 450ms var(--ease);
+}
+
+@keyframes swap-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.details-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.details-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.details-head h2 {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+/* Une seule ligne pour toutes les applications : le panneau garde la même hauteur (texte complet au survol) */
+.details-desc {
+  margin-top: 6px;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.features li {
+  padding: 4px 10px;
+  border: 1px solid rgba(var(--accent-rgb), 0.25);
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.08);
+  color: #d9dcff;
+  font-size: 12px;
+}
+
+.details-path {
+  margin-top: 10px;
+  overflow: hidden;
+  color: var(--faint);
+  font: 11.5px var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.details-actions {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 220px;
+}
+
+/* ------------------------------------------------------------------ Boutons */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font: 600 13px var(--font);
+  cursor: pointer;
+  transition: border-color 200ms, background 200ms, transform 150ms var(--ease);
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  color: var(--text);
+}
+
+/* Bouton principal : dégradé de la couleur de l'application, reflet qui balaie */
+.btn.launch {
+  position: relative;
+  overflow: hidden;
+  padding: 14px 20px;
+  border: 0;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 1), rgba(var(--accent-rgb), 0.65));
+  box-shadow: 0 10px 30px -8px rgba(var(--accent-rgb), 0.8);
+  font-size: 15px;
+}
+
+.btn.launch::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  transform: skewX(-20deg);
+  animation: shine 3.5s ease-in-out infinite;
+}
+
+@keyframes shine {
+  0%,
+  60% {
+    left: -60%;
+  }
+  100% {
+    left: 130%;
+  }
+}
+
+/* Survol : garde son dégradé (la règle générale .btn:hover le remplaçait par un fond sombre), en plus lumineux */
+.btn.launch:hover:not(:disabled) {
+  border-color: transparent;
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 1), rgba(var(--accent-rgb), 0.8));
+  box-shadow: 0 14px 40px -8px rgba(var(--accent-rgb), 1);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.btn.launch svg {
+  fill: currentColor;
+  stroke: none;
+}
+
+.secondary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+  min-height: 31px; /* hauteur d'une ligne de petits boutons, même vide : le panneau ne bouge pas */
+}
+
+.secondary-actions .btn {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------------ Mises à jour (pastille + panneau) */
+
+.update-chip {
+  --u-rgb: 139, 109, 255; /* violet de V3Redis, indépendant de l'application choisie */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--muted);
+  font: 600 12.5px var(--font);
+  white-space: nowrap;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: color 200ms, border-color 200ms, background 200ms, box-shadow 300ms;
+}
+
+.update-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.uc-icon {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.update-chip.busy .uc-icon {
+  background: transparent;
+  border: 2px solid var(--muted);
+  border-top-color: transparent;
+  width: 11px;
+  height: 11px;
+  animation: spin 900ms linear infinite;
+}
+
+.update-chip.progress {
+  border-color: rgba(var(--u-rgb), 0.45);
+  color: var(--text);
+}
+
+.update-chip.progress .uc-icon {
+  background: rgb(var(--u-rgb));
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.uc-bar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+}
+
+.uc-bar span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, rgba(var(--u-rgb), 0.6), rgb(var(--u-rgb)));
+  transition: width 400ms var(--ease);
+}
+
+.update-chip.ready {
+  border-color: transparent;
+  background: linear-gradient(135deg, rgb(var(--u-rgb)), rgba(var(--u-rgb), 0.7));
+  box-shadow: 0 8px 26px -8px rgba(var(--u-rgb), 0.9);
+  color: #fff;
+}
+
+.update-chip.ready .uc-icon {
+  background: #fff;
+  box-shadow: 0 0 8px #fff;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.update-chip.error .uc-icon {
+  background: var(--warn);
+}
+
+.update-panel {
+  --u-rgb: 139, 109, 255;
+  position: fixed;
+  top: 74px;
+  right: 24px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(440px, calc(100vw - 48px));
+  max-height: calc(100vh - 100px);
+  padding: 18px 20px;
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  background: rgba(14, 16, 34, 0.94);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6);
+  animation: swap-in 250ms var(--ease);
+}
+
+.up-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.up-head > div {
+  flex: 1;
+}
+
+.up-head h2 {
+  font-size: 17px;
+}
+
+.up-logo {
+  width: 34px;
+  height: 34px;
+}
+
+.up-sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.up-state {
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.up-detail {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.up-detail:empty {
+  display: none;
+}
+
+.up-detail.warn {
+  color: var(--warn);
+}
+
+.up-progress {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.up-progress span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, rgba(var(--u-rgb), 0.6), rgb(var(--u-rgb)));
+  transition: width 400ms var(--ease);
+}
+
+.up-notes {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.up-notes h3,
+.up-apps-title {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.up-notes p {
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 12.5px;
+  white-space: pre-line;
+}
+
+.up-apps {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.up-apps li {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+
+.up-apps li span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.up-apps li span.faint {
+  color: var(--faint);
+}
+
+.up-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.up-actions .btn.primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, rgb(var(--u-rgb)), rgba(var(--u-rgb), 0.7));
+  box-shadow: 0 8px 24px -8px rgba(var(--u-rgb), 0.9);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-chip .uc-icon,
+  .update-panel {
+    animation: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------ Notifications */
+
+.toast {
+  position: fixed;
+  bottom: 56px;
+  left: 50%;
+  z-index: 5;
+  max-width: 520px;
+  padding: 11px 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: rgba(14, 16, 34, 0.92);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  color: var(--text);
+  font-size: 13px;
+  text-align: center;
+  opacity: 0;
+  transform: translate(-50%, 10px);
+  transition: opacity 250ms, transform 250ms var(--ease);
+  pointer-events: none;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 6;
+  max-width: 280px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: rgba(14, 16, 34, 0.95);
+  color: var(--text);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.empty-state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+/* Fenêtres étroites : boîtes plus serrées pour garder toutes les applications sur une rangée */
+@media (max-width: 1060px) {
+  .cards {
+    gap: 14px;
+  }
+
+  .card-face {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .card-name {
+    font-size: 19px;
+  }
+
+  .card-tagline {
+    font-size: 12px;
+  }
+
+  .card .pill {
+    padding: 4px 9px;
+    font-size: 11px;
+  }
+}
+
+/* Très étroit (5 applications ou plus à la largeur minimale) : boîtes encore plus serrées */
+@media (max-width: 900px) {
+  .cards {
+    gap: 10px;
+  }
+
+  .card-face {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .card-name {
+    font-size: 17px;
+  }
+
+  .card .pill {
+    gap: 5px;
+    padding: 3px 7px;
+    font-size: 10.5px;
+  }
+}
+
+/* Fenêtres basses (720 px par défaut) : boîtes et panneau plus compacts */
+@media (max-height: 800px) {
+  .topbar {
+    padding-top: 14px;
+    padding-bottom: 10px;
+  }
+
+  .cards {
+    margin-top: 14px;
+  }
+
+  .card {
+    height: 280px;
+  }
+
+  .card-face {
+    padding-top: 24px;
+  }
+
+  .card-icon {
+    width: 84px;
+    height: 84px;
+  }
+
+  .card-name {
+    margin-top: 16px;
+  }
+
+  .details {
+    margin-top: 36px;
+    padding: 16px 22px;
+  }
+
+  .features {
+    margin-top: 8px;
+  }
+}
+
+@media (max-height: 640px) {
+  .details {
+    margin-top: 24px;
+  }
+
+  .card {
+    height: 244px;
+  }
+
+  .card-tagline,
+  .features {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ Lancement d'une application */
+
+/* 1) L'interface se retire : en-tête vers le haut, panneau vers le bas, boîtes qui s'effacent */
+.topbar,
+.eyebrow,
+.cards,
+.details {
+  transition: opacity 500ms var(--ease), transform 650ms var(--ease), filter 500ms;
+}
+
+body.launching .topbar {
+  opacity: 0;
+  transform: translateY(-24px);
+}
+
+body.launching .eyebrow {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+
+body.launching .cards {
+  opacity: 0;
+  transform: scale(0.92);
+  filter: blur(4px);
+}
+
+body.launching .details {
+  opacity: 0;
+  transform: translateY(40px);
+}
+
+body.launching .app {
+  pointer-events: none;
+}
+
+/* 2) Scène : icône au centre, anneaux, particules, état */
+.launch-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  opacity: 0;
+  transition: opacity 400ms var(--ease), transform 700ms var(--ease);
+  pointer-events: none;
+}
+
+body.launching .launch-stage {
+  opacity: 1;
+}
+
+.ls-core {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 320px;
+  height: 320px;
+}
+
+/* Tous les éléments de la scène sont superposés dans la même case, centrée : l'icône au milieu des anneaux */
+.ls-core > * {
+  grid-area: 1 / 1;
+}
+
+.ls-rings {
+  position: absolute;
+  inset: 0;
+}
+
+.ls-icon {
+  position: relative;
+  z-index: 2;
+  width: 132px;
+  height: 132px;
+  transition: transform 500ms var(--ease);
+}
+
+/* Anneaux qui s'élargissent depuis l'icône */
+.ls-rings span {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 150px;
+  height: 150px;
+  margin: -75px 0 0 -75px;
+  border: 2px solid rgba(var(--accent-rgb), 0.7);
+  border-radius: 50%;
+  opacity: 0;
+  animation: ring-out 2.4s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+
+.ls-rings span:nth-child(2) {
+  animation-delay: 0.6s;
+}
+
+.ls-rings span:nth-child(3) {
+  animation-delay: 1.2s;
+}
+
+.ls-rings span:nth-child(4) {
+  animation-delay: 1.8s;
+}
+
+@keyframes ring-out {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.3);
+  }
+}
+
+/* Particules en orbite (deux cercles, sens opposés) */
+.ls-orbit {
+  position: absolute;
+  inset: 0;
+  animation: orbit 6s linear infinite;
+}
+
+.ls-orbit-2 {
+  inset: 34px;
+  animation-duration: 4.2s;
+  animation-direction: reverse;
+}
+
+.ls-orbit i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: rgb(var(--accent-rgb));
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.9);
+}
+
+.ls-orbit-1 i:nth-child(1) {
+  transform: rotate(0deg) translateX(160px);
+}
+
+.ls-orbit-1 i:nth-child(2) {
+  transform: rotate(120deg) translateX(160px);
+}
+
+.ls-orbit-1 i:nth-child(3) {
+  transform: rotate(240deg) translateX(160px);
+}
+
+.ls-orbit-2 i {
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  background: #fff;
+}
+
+.ls-orbit-2 i:nth-child(1) {
+  transform: rotate(45deg) translateX(126px);
+}
+
+.ls-orbit-2 i:nth-child(2) {
+  transform: rotate(135deg) translateX(126px);
+}
+
+.ls-orbit-2 i:nth-child(3) {
+  transform: rotate(225deg) translateX(126px);
+}
+
+.ls-orbit-2 i:nth-child(4) {
+  transform: rotate(315deg) translateX(126px);
+}
+
+@keyframes orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Éclair quand la fenêtre de l'application apparaît */
+.ls-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.9), rgba(var(--accent-rgb), 0.5) 30%, transparent 65%);
+  opacity: 0;
+  transform: scale(0.3);
+}
+
+.ls-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.ls-text strong {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.ls-text span {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* Barre de progression indéterminée */
+.ls-bar {
+  position: relative;
+  width: 240px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ls-bar span {
+  position: absolute;
+  top: 0;
+  left: -40%;
+  width: 40%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgb(var(--accent-rgb)), transparent);
+  animation: bar-run 1.1s ease-in-out infinite;
+}
+
+@keyframes bar-run {
+  to {
+    left: 100%;
+  }
+}
+
+/* 3) Fenêtre de l'application affichée : éclair, anneaux plus rapides, barre pleine */
+.launch-stage.shown .ls-flash {
+  animation: flash 700ms ease-out forwards;
+}
+
+.launch-stage.shown .ls-icon {
+  transform: scale(1.12);
+}
+
+.launch-stage.shown .ls-rings span {
+  animation-duration: 1.2s;
+}
+
+/* Pendant l'animation : la barre se remplit de 0 à 100 % (durée = ANIMATION_MS dans app.js) */
+.launch-stage.filling .ls-bar span {
+  left: 0;
+  width: 0;
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.6), rgb(var(--accent-rgb)));
+  animation: bar-fill 2.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes bar-fill {
+  to {
+    width: 100%;
+  }
+}
+
+.launch-stage.shown .ls-bar span {
+  left: 0;
+  width: 100%;
+  animation: none;
+}
+
+@keyframes flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+/* 4) Sortie : tout s'éloigne et s'efface avant que la fenêtre se réduise */
+body.launch-exit .launch-stage {
+  opacity: 0;
+  transform: scale(1.25);
+}
+
+/* Échec : la scène tremble avant de rendre la main */
+.launch-stage.failed .ls-core {
+  animation: shake 420ms ease;
+}
+
+.launch-stage.failed .ls-bar span {
+  background: linear-gradient(90deg, transparent, #f87171, transparent);
+}
+
+@keyframes shake {
+  20%,
+  60% {
+    transform: translateX(-8px);
+  }
+  40%,
+  80% {
+    transform: translateX(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Aucune connexion (connect-src 'none'), aucune ressource externe -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agépédé</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <img src="assets/logo.svg" alt="" class="brand-logo" />
+        <div>
+          <h1>Agépédé</h1>
+          <p class="brand-sub">OU, groupes et permissions AGDLP dans Active Directory</p>
+        </div>
+      </div>
+      <div class="project-name" id="project-name" title="Projet en cours">Sans titre</div>
+      <div class="topbar-actions">
+        <button type="button" class="btn" id="btn-new" title="Nouveau projet (Ctrl+N)">Nouveau</button>
+        <button type="button" class="btn" id="btn-open" title="Ouvrir un projet (Ctrl+O)">Ouvrir…</button>
+        <button type="button" class="btn" id="btn-save" title="Enregistrer (Ctrl+S)">Enregistrer</button>
+        <button type="button" class="btn" id="btn-save-as" title="Enregistrer sous (Ctrl+Maj+S)">Enregistrer sous…</button>
+        <button type="button" class="btn btn-help" id="btn-help" title="Guide illustré et visite guidée (F1)"><span class="help-icon" aria-hidden="true">?</span> Aide</button>
+        <span class="env-badge" id="env-badge">Environnement : détection…</span>
+      </div>
+    </header>
+
+    <section class="domainbar" aria-label="Domaine Active Directory">
+      <label class="field">
+        <span>Domaine (nom DNS)</span>
+        <input type="text" id="dom-dns" placeholder="lab.local" autocomplete="off" spellcheck="false" />
+      </label>
+      <label class="field field-wide">
+        <span>DN du domaine <button type="button" class="link-btn" id="dom-dn-auto" title="Recalculer le DN à partir du nom DNS">recalculer</button></span>
+        <input type="text" id="dom-dn" placeholder="DC=lab,DC=local" autocomplete="off" spellcheck="false" />
+      </label>
+      <label class="field field-small">
+        <span>Nom NetBIOS</span>
+        <input type="text" id="dom-netbios" placeholder="LAB" autocomplete="off" spellcheck="false" />
+      </label>
+      <button type="button" class="btn" id="btn-detect" title="Détecter le domaine de cette machine et les outils Active Directory">Détecter</button>
+      <div class="chips" id="env-chips" aria-live="polite"></div>
+    </section>
+
+    <nav class="tabs" role="tablist" aria-label="Tableaux">
+      <button type="button" role="tab" data-tab="ous" id="tab-ous" aria-selected="true" title="Ctrl+1">OU <span class="count" data-count="ous">0</span></button>
+      <button type="button" role="tab" data-tab="globals" id="tab-globals" aria-selected="false" title="Ctrl+2">Groupes globaux (GG) <span class="count" data-count="globals">0</span></button>
+      <button type="button" role="tab" data-tab="locals" id="tab-locals" aria-selected="false" title="Ctrl+3">Groupes domaine local (DL) <span class="count" data-count="locals">0</span></button>
+      <button type="button" role="tab" data-tab="permissions" id="tab-permissions" aria-selected="false" title="Ctrl+4">Permissions (P) <span class="count" data-count="permissions">0</span></button>
+      <button type="button" role="tab" data-tab="script" id="tab-script" aria-selected="false" title="Ctrl+5">Script &amp; exécution <span class="count" data-count="script"></span></button>
+    </nav>
+
+    <main class="views">
+      <!-- 1. OU -->
+      <section class="view" id="view-ous" data-view="ous">
+        <div class="toolbar">
+          <p class="hint">Une ligne par unité d'organisation. <b>OU parente</b> : vide = racine du domaine, sinon le chemin de l'OU parente, par exemple <code>Paris/Compta</code>.</p>
+          <div class="toolbar-actions">
+            <button type="button" class="btn" data-action="add-row" data-table="ous">+ Ajouter une ligne</button>
+            <button type="button" class="btn" data-action="import-csv" data-table="ous">Importer CSV…</button>
+            <button type="button" class="btn" data-action="export-csv" data-table="ous">Exporter CSV…</button>
+          </div>
+        </div>
+        <div class="grid-wrap" id="grid-ous"></div>
+      </section>
+
+      <!-- 2. Groupes globaux -->
+      <section class="view" id="view-globals" data-view="globals" hidden>
+        <div class="toolbar">
+          <p class="hint">Groupes globaux (le <b>G</b> de AGDLP) : ils regroupent les comptes utilisateurs (<b>A</b>). <b>Membres</b> : noms d'ouverture de session (sAMAccountName) séparés par des virgules, par exemple <code>jdupont, mmartin</code>.</p>
+          <div class="toolbar-actions">
+            <button type="button" class="btn" data-action="add-row" data-table="globals">+ Ajouter une ligne</button>
+            <button type="button" class="btn" data-action="import-csv" data-table="globals">Importer CSV…</button>
+            <button type="button" class="btn" data-action="export-csv" data-table="globals">Exporter CSV…</button>
+          </div>
+        </div>
+        <div class="grid-wrap" id="grid-globals"></div>
+      </section>
+
+      <!-- 3. Groupes domaine local -->
+      <section class="view" id="view-locals" data-view="locals" hidden>
+        <div class="toolbar">
+          <p class="hint">Groupes domaine local (le <b>DL</b> de AGDLP) : ils reçoivent les permissions. <b>Membres</b> : groupes globaux séparés par des virgules.</p>
+          <div class="toolbar-actions">
+            <button type="button" class="btn" data-action="add-row" data-table="locals">+ Ajouter une ligne</button>
+            <button type="button" class="btn" data-action="import-csv" data-table="locals">Importer CSV…</button>
+            <button type="button" class="btn" data-action="export-csv" data-table="locals">Exporter CSV…</button>
+          </div>
+        </div>
+        <div class="helper" id="dl-helper">
+          <span>Créer les DL pour un GG :</span>
+          <input type="text" id="dl-helper-gg" list="dl-gg-names" placeholder="GG_Compta" autocomplete="off" spellcheck="false" />
+          <button type="button" class="btn" id="dl-helper-btn">Créer DL_…_R et DL_…_RW</button>
+          <span class="helper-note" id="dl-helper-note">Ajoute deux groupes domaine local (lecture, modification) contenant ce groupe global, dans la même OU.</span>
+        </div>
+        <div class="grid-wrap" id="grid-locals"></div>
+      </section>
+
+      <!-- 4. Permissions -->
+      <section class="view" id="view-permissions" data-view="permissions" hidden>
+        <div class="toolbar">
+          <p class="hint">Permissions NTFS (le <b>P</b> de AGDLP) : le groupe domaine local reçoit le droit sur le dossier (icacls, hérité par les sous-dossiers et fichiers). Chemin local du serveur de fichiers ou UNC, par exemple <code>D:\Partages\Compta</code>.</p>
+          <div class="toolbar-actions">
+            <label class="check"><input type="checkbox" id="opt-create-folders" /> Créer les dossiers absents</label>
+            <button type="button" class="btn" data-action="add-row" data-table="permissions">+ Ajouter une ligne</button>
+            <button type="button" class="btn" data-action="import-csv" data-table="permissions">Importer CSV…</button>
+            <button type="button" class="btn" data-action="export-csv" data-table="permissions">Exporter CSV…</button>
+          </div>
+        </div>
+        <div class="grid-wrap" id="grid-permissions"></div>
+      </section>
+
+      <!-- 5. Script & exécution -->
+      <section class="view view-script" id="view-script" data-view="script" hidden>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Vérification</h2>
+            <span class="panel-meta" id="validation-meta"></span>
+          </div>
+          <ul class="issues" id="issues"></ul>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Script CMD</h2>
+            <span class="panel-meta" id="script-meta"></span>
+            <div class="panel-actions">
+              <button type="button" class="btn" id="btn-copy">Copier</button>
+              <button type="button" class="btn" id="btn-export-bat">Exporter .bat…</button>
+            </div>
+          </div>
+          <pre class="script" id="script-preview" tabindex="0" aria-label="Aperçu du script"></pre>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Exécution</h2>
+            <div class="panel-actions">
+              <button type="button" class="btn" id="btn-simulate" title="Vérifie, sans rien créer, ce qui existe déjà dans l'annuaire">Simulation</button>
+              <button type="button" class="btn btn-primary" id="btn-run">Exécuter sur l'AD</button>
+              <button type="button" class="btn btn-danger" id="btn-stop" hidden>Arrêter</button>
+              <button type="button" class="btn" id="btn-export-log" disabled>Exporter le journal…</button>
+            </div>
+          </div>
+          <div class="run-status" id="run-status"></div>
+          <div class="progress" id="run-progress" hidden><span id="run-progress-bar"></span><em id="run-progress-text"></em></div>
+          <div class="run-summary" id="run-summary" hidden></div>
+          <div class="log-wrap">
+            <table class="log" id="run-log">
+              <thead>
+                <tr><th class="num">N°</th><th class="kind">Type</th><th>Action</th><th class="st">Statut</th><th class="dur">Durée</th></tr>
+              </thead>
+              <tbody id="run-log-body">
+                <tr class="log-empty"><td colspan="5">Le journal apparaîtra ici pendant la simulation ou l'exécution. Cliquez sur une ligne pour voir la commande et sa sortie.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <datalist id="dl-ou-paths"></datalist>
+    <datalist id="dl-gg-names"></datalist>
+    <datalist id="dl-dl-names"></datalist>
+    <datalist id="dl-multi"></datalist>
+
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+
+    <dialog class="modal" id="ask-dialog">
+      <h2 id="ask-title"></h2>
+      <p id="ask-message"></p>
+      <div class="modal-actions" id="ask-actions"></div>
+    </dialog>
+
+    <!-- Guide illustré (bouton « Aide », F1) : contenu construit par js/guide.js -->
+    <dialog class="modal modal-guide" id="help-dialog" aria-labelledby="guide-title">
+      <header class="guide-head">
+        <img src="assets/logo.svg" alt="" class="guide-logo" />
+        <h2 id="guide-title">Guide d'Agépédé</h2>
+        <span class="help-version" id="help-version"></span>
+        <button type="button" class="btn btn-primary" id="help-close">Fermer</button>
+      </header>
+      <div class="guide-main">
+        <nav class="guide-nav" id="guide-nav" aria-label="Sommaire du guide"></nav>
+        <div class="guide-body" id="guide-body" tabindex="0"></div>
+      </div>
+    </dialog>
+
+    <script src="../lib/agdlp.js"></script>
+    <script src="js/grid.js"></script>
+    <script src="js/guide-shots.js"></script>
+    <script src="js/guide.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>
