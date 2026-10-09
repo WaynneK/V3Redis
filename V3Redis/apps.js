@@ -117,10 +117,10 @@ module.exports = [
     id: 'agepede',
     name: 'Agépédé',
     tagline: 'Votre Active Directory, en AGDLP',
-    description: 'OU, groupes globaux et domaine local en tableau, créés en CMD (AGDLP).',
+    description: 'OU, utilisateurs, groupes et dossiers en tableau, créés en CMD (AGDLP).',
     icon: 'agepede.svg',
     accent: '#f59e0b',
-    features: ['OU, GG et DL en tableau', 'Modèle AGDLP', 'Script CMD (dsadd)', 'Windows Server'],
+    features: ['OU, comptes, GG et DL', 'Héritage des dossiers', 'Script CMD (dsadd)', 'Windows Server'],
     status: 'available',
     downloadUrl: null,
     windows: {

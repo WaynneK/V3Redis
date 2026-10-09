@@ -356,7 +356,7 @@ function sendRun(payload) {
 }
 
 function countSteps(steps) {
-  const c = { ou: 0, group: 0, member: 0, folder: 0, acl: 0 };
+  const c = { ou: 0, user: 0, group: 0, member: 0, folder: 0, inherit: 0, acl: 0 };
   for (const s of steps) if (Object.prototype.hasOwnProperty.call(c, s.kind)) c[s.kind] += 1;
   return c;
 }
@@ -378,14 +378,18 @@ async function startRun(req) {
   if (!env.fake) {
     if (!env.isWindows) return { ok: false, error: "L'exécution n'est possible que sous Windows (contrôleur de domaine ou poste avec RSAT)." };
     if (!env.tools || !env.tools.dsadd || !env.tools.dsquery || !env.tools.dsmod) return { ok: false, error: 'Outils Active Directory introuvables (dsadd, dsmod, dsquery) : installez RSAT « Outils AD DS » ou lancez Agépédé sur un contrôleur de domaine.' };
-    if ((counts.acl > 0 || counts.folder > 0) && !(env.tools && env.tools.icacls)) return { ok: false, error: 'icacls introuvable : impossible d\'appliquer les permissions.' };
+    if ((counts.acl > 0 || counts.folder > 0 || counts.inherit > 0) && !(env.tools && env.tools.icacls)) return { ok: false, error: 'icacls introuvable : impossible d\'appliquer les permissions.' };
   }
 
   if (!dryRun) {
     const dns = (project.domain && project.domain.dns) || '?';
     const dn = (project.domain && project.domain.dn) || '';
-    const parts = [plural(counts.ou, 'OU', 'OU'), plural(counts.group, 'groupe', 'groupes'), plural(counts.member, 'appartenance', 'appartenances'), plural(counts.acl, 'permission', 'permissions')];
+    const parts = [plural(counts.ou, 'OU', 'OU')];
+    if (counts.user) parts.push(plural(counts.user, 'utilisateur', 'utilisateurs'));
+    parts.push(plural(counts.group, 'groupe', 'groupes'), plural(counts.member, 'appartenance', 'appartenances'));
     if (counts.folder) parts.push(plural(counts.folder, 'dossier', 'dossiers'));
+    if (counts.inherit) parts.push(plural(counts.inherit, 'héritage cassé', 'héritages cassés'));
+    parts.push(plural(counts.acl, 'permission', 'permissions'));
     const warnings = [];
     if (env.domain && env.domain.dns && String(env.domain.dns).toLowerCase() !== String(dns).toLowerCase()) {
       warnings.push(`Attention : cette machine appartient au domaine ${env.domain.dns}, le projet vise ${dns}.`);
@@ -696,10 +700,12 @@ function selfTestEngine() {
     const p = Agdlp.normalizeProject({
       version: 1,
       domain: { dns: 'lab.local', dn: 'DC=lab,DC=local', netbios: 'LAB' },
-      options: { createFolders: false },
+      options: { createFolders: false, defaultPassword: 'Bienvenue2026!' },
       ous: [{ name: 'Paris', parent: '', description: '' }],
+      users: [{ login: 'jdupont', firstName: 'Jean', lastName: 'Dupont', ou: 'Paris', password: '' }],
       globals: [{ name: 'GG_Compta', ou: 'Paris', description: '', members: 'jdupont' }],
       locals: [{ name: 'DL_Compta_RW', ou: 'Paris', description: '', members: 'GG_Compta' }],
+      folders: [{ path: 'D:\\Partages\\Compta', inheritance: 'break' }],
       permissions: [{ path: 'D:\\Partages\\Compta', group: 'DL_Compta_RW', right: 'RW' }],
     });
     const checks = [];
@@ -707,7 +713,7 @@ function selfTestEngine() {
     checks.push(Agdlp.validateProject(p).errors.length === 0);
     const steps = Agdlp.plan(p);
     const kinds = new Set(steps.map((s) => s.kind));
-    checks.push(['ou', 'group', 'member', 'acl'].every((k) => kinds.has(k)));
+    checks.push(['ou', 'user', 'group', 'member', 'folder', 'inherit', 'acl'].every((k) => kinds.has(k)));
     checks.push(steps.some((s) => /dsadd\s+ou/i.test(s.command) && /OU=Paris,DC=lab,DC=local/i.test(s.command)));
     checks.push(steps.every((s) => !/\bds(rm|move)\b/i.test(s.command))); // jamais de suppression
     checks.push(/\r\n/.test(Agdlp.toBatch(steps, { title: 'test', domain: 'lab.local', date: '' })));

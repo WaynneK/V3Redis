@@ -222,7 +222,7 @@ test('runCommand : arguments cmd.exe, sorties fusionnées, code de sortie', asyn
   const r = await R.runCommand('dsadd ou "OU=Société,DC=lab"', { spawn: f.spawn });
   assert.equal(f.calls.length, 1);
   assert.match(f.calls[0].file, /cmd(\.exe)?$/i);
-  assert.deepEqual(f.calls[0].args, ['/d', '/s', '/c', '"chcp 65001>nul & dsadd ou "OU=Société,DC=lab""']);
+  assert.deepEqual(f.calls[0].args, ['/d', '/v:off', '/s', '/c', '"chcp 65001>nul & dsadd ou "OU=Société,DC=lab""']);
   assert.equal(f.calls[0].options.windowsVerbatimArguments, true);
   assert.equal(f.calls[0].options.windowsHide, true);
   assert.equal(r.exitCode, 0);
@@ -321,4 +321,31 @@ test('detectEnvironment : whoami indisponible → repli « net session » ; lanc
   const env2 = await R.detectEnvironment({ platform: 'win32', run: async () => { throw new Error('x'); }, env: {} });
   assert.equal(env2.isAdmin, false);
   assert.equal(env2.tools.dsadd, false);
+});
+
+test('runSteps : utilisateur absent de son OU mais identifiant pris ailleurs → erreur, appartenance ignorée', async () => {
+  const steps = A.plan({
+    domain: { dns: 'lab.local', dn: '', netbios: 'LAB' },
+    options: { defaultPassword: 'Bienvenue2026!' },
+    users: [{ id: 'u1', login: 'jdupont', firstName: 'Jean', lastName: 'Dupont', ou: '', password: '' }],
+    globals: [{ id: 'g1', name: 'GG_Compta', ou: '', description: '', members: 'jdupont' }],
+  });
+  const f = fakeRun((line) => {
+    if (isCheck(steps, line)) return { exitCode: 1 };
+    if (/^dsadd user/.test(line)) return { exitCode: 0x80070524 | 0, output: 'dsadd a échoué :0x80070524:' };
+    return {};
+  });
+  const events = [];
+  await R.runSteps(steps, { run: f.run, platform: 'win32', onStep: (e) => events.push(e) });
+  const user = events.find((e) => e.step.kind === 'user');
+  assert.equal(user.status, 'error');
+  assert.match(user.message, /Un compte portant ce nom/);
+  assert.equal(events.find((e) => e.step.kind === 'member').status, 'skipped');
+});
+
+test('runSteps simulation : héritage cassé non vérifiable à l\'avance', async () => {
+  const steps = A.plan({ domain: { dns: 'lab.local' }, folders: [{ id: 'f1', path: 'D:\\Partages\\Compta', inheritance: 'break' }] });
+  const events = [];
+  await R.runSteps(steps, { dryRun: true, run: fakeRun(() => ({ exitCode: 1 })).run, platform: 'win32', onStep: (e) => events.push(e) });
+  assert.deepEqual(events.map((e) => [e.step.kind, e.status]), [['folder', 'todo'], ['inherit', 'unknown']]);
 });

@@ -1,7 +1,7 @@
 {
   "name": "agepede",
   "productName": "Agépédé",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Création d'OU, de groupes globaux et domaine local, d'appartenances AGDLP et de permissions NTFS dans Active Directory à partir de tableaux.",
   "main": "main.js",
   "author": "WaynneK",

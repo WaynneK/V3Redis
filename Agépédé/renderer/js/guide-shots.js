@@ -101,6 +101,67 @@ window.GUIDE_SHOTS = {
     ],
     "dark": "assets/guide/domain-dark.png"
   },
+  "users": {
+    "src": "assets/guide/users-light.png",
+    "w": 1241,
+    "h": 801,
+    "markers": [
+      {
+        "n": 1,
+        "x": 3.65,
+        "y": 45.2
+      },
+      {
+        "n": 2,
+        "x": 51.37,
+        "y": 45.2
+      },
+      {
+        "n": 3,
+        "x": 75.72,
+        "y": 45.2
+      },
+      {
+        "n": 4,
+        "x": 31.69,
+        "y": 35.42
+      },
+      {
+        "n": 5,
+        "x": 34.04,
+        "y": 35.42
+      }
+    ],
+    "dark": "assets/guide/users-dark.png"
+  },
+  "folders": {
+    "src": "assets/guide/folders-light.png",
+    "w": 1241,
+    "h": 801,
+    "markers": [
+      {
+        "n": 1,
+        "x": 3.65,
+        "y": 47.56
+      },
+      {
+        "n": 2,
+        "x": 96.99,
+        "y": 47.56
+      },
+      {
+        "n": 3,
+        "x": 1.1,
+        "y": 37.78
+      },
+      {
+        "n": 4,
+        "x": 28.39,
+        "y": 37.78
+      }
+    ],
+    "dark": "assets/guide/folders-dark.png"
+  },
   "globals": {
     "src": "assets/guide/globals-light.png",
     "w": 1241,
@@ -128,7 +189,7 @@ window.GUIDE_SHOTS = {
       },
       {
         "n": 5,
-        "x": 23.03,
+        "x": 34,
         "y": 22.87
       }
     ],
@@ -156,7 +217,7 @@ window.GUIDE_SHOTS = {
       },
       {
         "n": 4,
-        "x": 21.97,
+        "x": 32.95,
         "y": 22.75
       }
     ],
@@ -231,22 +292,22 @@ window.GUIDE_SHOTS = {
       {
         "n": 1,
         "x": 1.26,
-        "y": 46.28
+        "y": 48.64
       },
       {
         "n": 2,
         "x": 1.32,
-        "y": 61.76
+        "y": 60.76
       },
       {
         "n": 3,
         "x": 1.32,
-        "y": 82.16
+        "y": 78.46
       },
       {
         "n": 4,
         "x": 90.6,
-        "y": 72.08
+        "y": 64.2
       },
       {
         "n": 5,

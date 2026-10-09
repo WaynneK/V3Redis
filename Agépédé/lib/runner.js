@@ -65,7 +65,7 @@ function killTree(pid, spawn) {
 
 /**
  * Lance une ligne cmd.exe telle qu'on la taperait dans l'invite de commandes.
- * cmd /d (sans AutoRun) /s (guillemets externes retirés, le reste laissé tel quel) /c.
+ * cmd /d (sans AutoRun) /v:off (pas d'expansion retardée) /s (guillemets externes retirés, le reste laissé tel quel) /c.
  * Ne rejette jamais : { exitCode, output, stdout, stderr, timedOut, aborted, durationMs }.
  * options.spawn (ou options.exec) : remplaçant de child_process.spawn pour les tests.
  */
@@ -105,7 +105,8 @@ function runCommand(line, options = {}) {
     }
     try {
       const comspec = process.env.ComSpec || 'cmd.exe';
-      child = spawn(comspec, ['/d', '/s', '/c', `"chcp 65001>nul & ${line}"`], {
+      // /v:off : expansion retardée désactivée même si le registre l'active (un « ! » reste littéral)
+      child = spawn(comspec, ['/d', '/v:off', '/s', '/c', `"chcp 65001>nul & ${line}"`], {
         windowsVerbatimArguments: true,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -309,7 +310,10 @@ async function runSteps(steps, options = {}) {
 
     if (dryRun) {
       if (checked) report(index, step, 'todo', 'À faire.', '', started);
-      else report(index, step, 'unknown', step.kind === 'acl' ? 'Droit appliqué à l\'exécution (pas de vérification préalable).' : 'Non vérifiable avant exécution.', '', started);
+      else {
+        const notes = { acl: 'Droit appliqué à l\'exécution (pas de vérification préalable).', inherit: 'Héritage cassé à l\'exécution (pas de vérification préalable).' };
+        report(index, step, 'unknown', notes[step.kind] || 'Non vérifiable avant exécution.', '', started);
+      }
       continue;
     }
 
@@ -345,8 +349,9 @@ async function runSteps(steps, options = {}) {
     let cls = Agdlp.classifyResult({ exitCode: r.exitCode, output: r.output, kind: step.kind });
     // Le test disait « absent » mais dsadd répond « existe déjà » : le nom est pris ailleurs
     // (même sAMAccountName dans une autre OU). Les étapes suivantes échoueraient : c'est une erreur.
-    if (cls.status === 'exists' && checked && step.kind === 'group') {
-      cls = { status: 'error', message: "Un groupe portant ce nom (sAMAccountName) existe déjà ailleurs dans le domaine.", code: cls.code };
+    if (cls.status === 'exists' && checked && (step.kind === 'group' || step.kind === 'user')) {
+      const what = step.kind === 'user' ? 'Un compte' : 'Un groupe';
+      cls = { status: 'error', message: `${what} portant ce nom (sAMAccountName) existe déjà ailleurs dans le domaine.`, code: cls.code };
     }
     if (r.timedOut) cls = { status: 'error', message: 'Délai dépassé : commande interrompue.', code: null };
     report(index, step, cls.status, cls.message, r.output, started, cls.code);

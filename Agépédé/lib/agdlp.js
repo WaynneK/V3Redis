@@ -6,6 +6,7 @@
  * les mêmes lignes de commande.
  *
  * Modèle AGDLP : comptes (A) → groupes globaux (G) → groupes domaine local (DL) → permissions (P).
+ * Agépédé crée aussi les OU, les comptes utilisateurs et les dossiers (héritage des droits conservé ou cassé).
  * Les objets sont créés avec les outils classiques de cmd.exe : dsadd, dsmod, dsquery, icacls.
  * Les références (syntaxe vérifiée, sources) sont dans docs/COMMANDES.md.
  */
@@ -20,7 +21,7 @@
   // Constantes
   // ---------------------------------------------------------------------------
 
-  const TABLES = ['ous', 'globals', 'locals', 'permissions'];
+  const TABLES = ['ous', 'users', 'globals', 'locals', 'folders', 'permissions'];
 
   /** Préfixes conseillés (convention de nommage, simple avertissement). */
   const PREFIXES = { global: 'GG_', local: 'DL_' };
@@ -32,12 +33,33 @@
     F: { label: 'Contrôle total', icacls: '(OI)(CI)F' },
   };
 
+  /**
+   * Héritage des autorisations d'un dossier : « keep » (conservé) ou « break » (cassé).
+   * Casser = icacls /inheritance:d (les droits hérités sont recopiés en droits explicites, comme le bouton
+   * « Désactiver l'héritage › Convertir » de Windows), puis, si l'option est cochée, retrait des groupes
+   * Utilisateurs (S-1-5-32-545) et Utilisateurs authentifiés (S-1-5-11), désignés par leur SID : les noms
+   * changent avec la langue du serveur.
+   */
+  const INHERITANCE = { keep: 'Conservé', break: 'Cassé' };
+  const BROAD_SIDS = ['*S-1-5-32-545', '*S-1-5-11'];
+
   /** Colonnes des tableaux (import / export CSV, collage depuis Excel). */
   const COLUMNS = {
     ous: [
       { key: 'name', label: 'Nom' },
       { key: 'parent', label: 'OU parente' },
       { key: 'description', label: 'Description' },
+    ],
+    users: [
+      { key: 'login', label: 'Identifiant' },
+      { key: 'firstName', label: 'Prénom' },
+      { key: 'lastName', label: 'Nom' },
+      { key: 'ou', label: 'OU' },
+      { key: 'password', label: 'Mot de passe' },
+    ],
+    folders: [
+      { key: 'path', label: 'Dossier' },
+      { key: 'inheritance', label: 'Héritage (Conservé, Cassé)', toText: (v) => INHERITANCE[v] || INHERITANCE.keep },
     ],
     globals: [
       { key: 'name', label: 'Nom' },
@@ -66,6 +88,8 @@
     user: 20, // un nom d'ouverture de session (utilisateur) ne dépasse jamais 20 caractères
     path: 240,
     description: 1024,
+    password: 127, // longueur maximale acceptée par Windows
+    passwordMin: 7, // stratégie par défaut d'un domaine : 7 caractères, complexité activée
   };
 
   // Caractères refusés partout : ils cassent la ligne de commande ou sont interprétés par cmd.exe
@@ -77,7 +101,7 @@
   // Caractères à échapper dans une valeur de DN (learn.microsoft.com : Distinguished Names).
   const DN_SPECIALS = /[,+"\\<>;=/]/g;
 
-  const KIND_LABELS = { ou: "Le nom d'OU", group: 'Le nom de groupe', user: "Le nom d'utilisateur", path: 'Le chemin', desc: 'La description' };
+  const KIND_LABELS = { ou: "Le nom d'OU", group: 'Le nom de groupe', user: "Le nom d'utilisateur", person: 'Le prénom ou le nom', path: 'Le chemin', desc: 'La description' };
 
   // ---------------------------------------------------------------------------
   // Outils
@@ -258,6 +282,51 @@
     return '';
   }
 
+  /** « Cassé » / « oui » / « break » … → 'break' ; tout le reste (vide, « Conservé », « non ») → 'keep'. */
+  function normalizeInheritance(value) {
+    const k = nameKey(value).replace(/[\s_-]+/g, ' ').trim();
+    return ['break', 'casse', 'casser', 'cassee', 'oui', 'yes', 'o', 'x', '1', 'true', 'desactive', 'desactivee', 'off', 'non herite'].includes(k) ? 'break' : 'keep';
+  }
+
+  /** Nom affiché et cn d'un utilisateur : « Prénom Nom », sinon l'identifiant. */
+  function userDisplayName(row) {
+    const full = [str(row && row.firstName).trim(), str(row && row.lastName).trim()].filter(Boolean).join(' ');
+    return full || str(row && row.login).trim();
+  }
+
+  /** Mot de passe d'un utilisateur : celui de la ligne, sinon le mot de passe par défaut du projet. */
+  function userPassword(row, options) {
+    const own = str(row && row.password);
+    return own !== '' ? own : str(options && options.defaultPassword);
+  }
+
+  /**
+   * Vérifie un mot de passe avant de l'écrire dans une ligne de commande (entre guillemets) :
+   * " et % cassent la ligne ; les autres caractères spéciaux sont sans effet entre guillemets.
+   */
+  function validatePassword(pwd) {
+    const s = str(pwd);
+    if (!s) return 'Mot de passe manquant : saisissez-le dans la ligne ou indiquez un mot de passe par défaut au-dessus du tableau.';
+    if (s !== s.trim()) return 'Le mot de passe commence ou se termine par un espace.';
+    if (/[\u0000-\u001f\u007f]/.test(s)) return 'Le mot de passe contient un caractère de contrôle.';
+    const bad = firstChar(['"', '%'], s);
+    if (bad) return `Le mot de passe contient ${showChar(bad)} : ce caractère casse la ligne de commande.`;
+    if (s.length > LIMITS.password) return `Le mot de passe dépasse ${LIMITS.password} caractères.`;
+    return null;
+  }
+
+  /** Stratégie par défaut d'un domaine : 7 caractères, 3 catégories sur 4, sans l'identifiant. */
+  function passwordWarnings(pwd, login) {
+    const s = str(pwd);
+    const out = [];
+    if (s.length < LIMITS.passwordMin) out.push(`Mot de passe de ${s.length} caractère${s.length > 1 ? 's' : ''} : la stratégie par défaut d'un domaine en exige au moins ${LIMITS.passwordMin}.`);
+    const cats = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(s)).length;
+    if (cats < 3) out.push('Mot de passe peu complexe : la stratégie par défaut demande 3 types de caractères parmi minuscules, majuscules, chiffres et symboles.');
+    const l = str(login).trim().toLowerCase();
+    if (l.length >= 3 && s.toLowerCase().includes(l)) out.push("Le mot de passe contient l'identifiant : refusé par la stratégie par défaut.");
+    return out;
+  }
+
   // ---------------------------------------------------------------------------
   // Validation
   // ---------------------------------------------------------------------------
@@ -286,6 +355,11 @@
 
     const cmdBad = firstChar(CMD_FORBIDDEN, s);
     if (cmdBad) return `${what} « ${s} » contient ${showChar(cmdBad)} : ce caractère est interprété par l'invite de commandes (cmd.exe).`;
+
+    if (kind === 'person') {
+      if (s.length > LIMITS.cn) return `${what} « ${s} » dépasse ${LIMITS.cn} caractères.`;
+      return null;
+    }
 
     if (kind === 'ou') {
       if (/[/\\]/.test(s)) return `${what} « ${s} » contient « / » ou « \\ » : ces caractères séparent les niveaux d'OU (saisissez l'OU parente dans la colonne « OU parente »).`;
@@ -382,8 +456,8 @@
     const err = (table, id, field, message) => issues.errors.push({ table, id, field, message });
     const warn = (table, id, field, message) => issues.warnings.push({ table, id, field, message });
 
-    const total = p.ous.length + p.globals.length + p.locals.length + p.permissions.length;
-    if (!total) err('domain', null, null, 'Rien à créer : ajoutez au moins une OU, un groupe ou une permission.');
+    const total = TABLES.reduce((n, t) => n + p[t].length, 0);
+    if (!total) err('domain', null, null, 'Rien à créer : ajoutez au moins une OU, un utilisateur, un groupe, un dossier ou une permission.');
     validateDomain(p.domain, issues, p.permissions.length > 0);
 
     // --- OU ---------------------------------------------------------------
@@ -411,6 +485,72 @@
       const parent = ouSegments(row.parent).join('/');
       if (parent && !ouKnown(parent)) warn('ous', row.id, 'parent', `L'OU parente « ${parent} » n'est pas dans le tableau : elle doit déjà exister dans l'Active Directory.`);
     }
+    /** Chemin d'OU d'une ligne (utilisateur, groupe) : erreur sur un niveau invalide, avertissement si absent. */
+    const checkOuCell = (table, row) => {
+      const segs = ouSegments(row.ou);
+      for (const seg of segs) {
+        const oe = validateName('ou', seg);
+        if (oe) {
+          err(table, row.id, 'ou', `OU « ${row.ou} » : ${oe}`);
+          return;
+        }
+      }
+      if (segs.length && !ouKnown(row.ou)) {
+        warn(table, row.id, 'ou', `L'OU « ${segs.join('/')} » n'est pas dans le tableau des OU : elle doit déjà exister dans l'Active Directory.`);
+      }
+    };
+
+    // --- Utilisateurs (A) -------------------------------------------------
+    const users = new Map(); // clé de l'identifiant → ligne
+    const userDns = new Set();
+    const defaultPwd = str(p.options.defaultPassword);
+    if (defaultPwd && p.users.some((r) => str(r.password) === '')) {
+      const de = validatePassword(defaultPwd);
+      if (de) err('users', null, 'defaultPassword', `Mot de passe par défaut : ${de}`);
+      else for (const w of passwordWarnings(defaultPwd, '')) warn('users', null, 'defaultPassword', `Mot de passe par défaut : ${w}`);
+    }
+    for (const row of p.users) {
+      const e = validateName('user', row.login);
+      if (e) err('users', row.id, 'login', e);
+      else {
+        for (const w of nameWarnings('user', row.login)) warn('users', row.id, 'login', w);
+        const key = nameKey(row.login);
+        if (users.has(key)) err('users', row.id, 'login', `L'identifiant « ${row.login} » est déjà dans le tableau (doublon, casse et accents ignorés).`);
+        else users.set(key, row);
+      }
+      let personError = false;
+      for (const f of ['firstName', 'lastName']) {
+        if (!str(row[f])) continue;
+        const pe = validateName('person', row[f]);
+        if (pe) {
+          err('users', row.id, f, pe);
+          personError = true;
+        }
+      }
+      if (!str(row.firstName).trim() && !str(row.lastName).trim() && !e) {
+        warn('users', row.id, 'lastName', `Ni prénom ni nom : le compte s'affichera sous son identifiant « ${row.login} ».`);
+      }
+      const display = userDisplayName(row);
+      if (!personError && display.length > LIMITS.cn) err('users', row.id, 'lastName', `« ${display} » dépasse ${LIMITS.cn} caractères (nom affiché du compte).`);
+      checkOuCell('users', row);
+      // Mot de passe propre à la ligne : contrôle complet. Mot de passe par défaut : contrôlé une seule fois
+      // (plus bas) ; ici seulement la règle « ne contient pas l'identifiant », propre à chaque compte.
+      const own = str(row.password);
+      if (own !== '' || !defaultPwd) {
+        const pwe = validatePassword(own);
+        if (pwe) err('users', row.id, 'password', pwe);
+        else for (const w of passwordWarnings(own, row.login)) warn('users', row.id, 'password', w);
+      } else if (!e) {
+        for (const w of passwordWarnings(defaultPwd, row.login).filter((x) => /identifiant/.test(x))) warn('users', row.id, 'password', `Mot de passe par défaut : ${w}`);
+      }
+      // Même nom affiché dans la même OU : même DN, le second compte ne pourrait pas être créé
+      if (!e && !personError) {
+        const dnKey = nameKey(display) + '|' + nameKey(ouSegments(row.ou).join('/'));
+        if (userDns.has(dnKey)) err('users', row.id, 'lastName', `Un autre utilisateur du tableau s'appelle déjà « ${display} » dans cette OU : ajoutez une initiale ou changez d'OU.`);
+        userDns.add(dnKey);
+      }
+    }
+    const isUser = (name) => users.has(nameKey(name));
 
     // --- Groupes ----------------------------------------------------------
     const groups = new Map(); // clé → { scope: 'global' | 'local', row }
@@ -428,20 +568,10 @@
           const other = groups.get(key);
           err(table, row.id, 'name', `Le groupe « ${row.name} » existe déjà dans le tableau des groupes ${other.scope === 'global' ? 'globaux' : 'domaine local'} (doublon, casse et accents ignorés).`);
         } else groups.set(key, { scope, row });
+        // Utilisateurs et groupes partagent le même espace de noms (sAMAccountName)
+        if (isUser(row.name)) err(table, row.id, 'name', `« ${row.name} » est aussi l'identifiant d'un utilisateur du tableau : un groupe et un compte ne peuvent pas porter le même nom.`);
       }
-      const ouSegs = ouSegments(row.ou);
-      let ouError = false;
-      for (const seg of ouSegs) {
-        const oe = validateName('ou', seg);
-        if (oe) {
-          err(table, row.id, 'ou', `OU « ${row.ou} » : ${oe}`);
-          ouError = true;
-          break;
-        }
-      }
-      if (!ouError && ouSegs.length && !ouKnown(row.ou)) {
-        warn(table, row.id, 'ou', `L'OU « ${ouSegs.join('/')} » n'est pas dans le tableau des OU : elle doit déjà exister dans l'Active Directory.`);
-      }
+      checkOuCell(table, row);
       const de = validateName('desc', row.description);
       if (de) err(table, row.id, 'description', de);
     };
@@ -475,6 +605,7 @@
           err('globals', row.id, 'members', e);
           continue;
         }
+        if (isUser(m)) continue; // compte créé par l'onglet Utilisateurs
         if (mk.startsWith(PREFIXES.local.toLowerCase())) {
           warn('globals', row.id, 'members', `« ${m} » ressemble à un groupe domaine local absent du tableau : il sera cherché comme utilisateur, et un groupe global ne peut pas contenir de groupe domaine local.`);
         } else if (mk.startsWith(PREFIXES.global.toLowerCase())) {
@@ -495,6 +626,10 @@
         const e = validateName('group', m);
         if (e) {
           err('locals', row.id, 'members', e);
+          continue;
+        }
+        if (isUser(m)) {
+          warn('locals', row.id, 'members', `« ${m} » est un utilisateur : Active Directory l'accepte dans un groupe domaine local, mais en AGDLP les comptes vont dans un groupe global (onglet GG).`);
           continue;
         }
         const scope = scopeOf(m);
@@ -561,7 +696,36 @@
       }
     }
 
+    // --- Dossiers ----------------------------------------------------------
+    const folderKeys = new Set();
+    const permPaths = new Set(p.permissions.filter((r) => !validateName('path', r.path)).map((r) => nameKey(cleanPath(r.path))));
+    for (const row of p.folders) {
+      const pe = validateName('path', row.path);
+      if (pe) {
+        err('folders', row.id, 'path', pe);
+        continue;
+      }
+      const key = nameKey(cleanPath(row.path));
+      if (folderKeys.has(key)) {
+        err('folders', row.id, 'path', `Le dossier « ${cleanPath(row.path)} » est déjà dans le tableau (doublon).`);
+        continue;
+      }
+      folderKeys.add(key);
+      if (!permPaths.has(key)) {
+        const lock = row.inheritance === 'break' && p.options.stripUsers ? ' Héritage cassé : seuls les administrateurs y auront accès.' : '';
+        warn('folders', row.id, 'path', `Aucun groupe ne reçoit de droit sur « ${cleanPath(row.path)} » (onglet Permissions).${lock}`);
+      }
+    }
+
     // --- Esprit AGDLP -----------------------------------------------------
+    if (p.globals.length) {
+      const inSomeGg = new Set();
+      for (const row of p.globals) for (const m of splitMembers(row.members)) inSomeGg.add(nameKey(m));
+      for (const row of p.users) {
+        if (validateName('user', row.login) || inSomeGg.has(nameKey(row.login))) continue;
+        warn('users', row.id, 'login', `L'utilisateur « ${row.login} » n'est membre d'aucun groupe global : ajoutez-le dans la colonne Membres de l'onglet GG.`);
+      }
+    }
     for (const row of p.locals) {
       if (validateName('group', row.name)) continue;
       if (!dlWithPerm.has(nameKey(row.name)) && !isNestedDl(p, row.name)) {
@@ -627,8 +791,8 @@
 
   /**
    * Construit la liste ordonnée des étapes.
-   * Ordre : OU (parents d'abord) → groupes globaux → groupes domaine local → appartenances
-   * (utilisateurs → GG, GG → DL) → dossiers (option) → droits icacls.
+   * Ordre : OU (parents d'abord) → utilisateurs → groupes globaux → groupes domaine local → appartenances
+   * (utilisateurs → GG, GG → DL) → dossiers → héritage cassé → droits icacls.
    * Les lignes invalides (voir validateProject) sont ignorées : aucune commande dangereuse n'est produite.
    */
   function plan(project) {
@@ -672,6 +836,42 @@
     }
     const ouNeed = (path) => ouStep.get(nameKey(ouSegments(path).join('/')));
 
+    // --- Utilisateurs ---
+    const userInfo = new Map(); // clé de l'identifiant → { dn, stepId, name }
+    const upnSuffix = str(p.domain.dns).trim().replace(/\.$/, '') || dnToDomain(base);
+    const userDnSeen = new Set();
+    for (const row of p.users) {
+      if (validateName('user', row.login)) continue;
+      if (['firstName', 'lastName'].some((f) => str(row[f]) && validateName('person', row[f]))) continue;
+      if (ouSegments(row.ou).some((s) => validateName('ou', s))) continue;
+      const pwd = userPassword(row, p.options);
+      if (validatePassword(pwd)) continue;
+      const key = nameKey(row.login);
+      const display = userDisplayName(row);
+      if (userInfo.has(key) || display.length > LIMITS.cn) continue;
+      const dn = `CN=${escapeRdn(display)},${containerDn(row.ou, base)}`;
+      if (userDnSeen.has(nameKey(dn))) continue;
+      userDnSeen.add(nameKey(dn));
+      const fn = str(row.firstName).trim();
+      const ln = str(row.lastName).trim();
+      let command = `dsadd user "${dn}" -samid ${arg(row.login)}`;
+      if (upnSuffix) command += ` -upn ${arg(`${row.login}@${upnSuffix}`)}`;
+      if (fn) command += ` -fn ${arg(fn)}`;
+      if (ln) command += ` -ln ${arg(ln)}`;
+      command += ` -display "${display}" -pwd "${pwd}"${p.options.mustChangePassword ? ' -mustchpwd yes' : ''} -disabled no`;
+      const id = add({
+        kind: 'user',
+        table: 'users',
+        rowId: row.id,
+        label: `Créer l'utilisateur ${row.login} (${display})`,
+        dn,
+        command,
+        check: existsCheck(dn),
+        needs: [ouNeed(row.ou)],
+      });
+      userInfo.set(key, { dn, stepId: id, name: row.login });
+    }
+
     // --- Groupes ---
     const groupInfo = new Map(); // clé → { dn, scope, stepId, name }
     const addGroup = (row, scope, table) => {
@@ -703,7 +903,7 @@
       for (const m of splitMembers(row.members)) {
         const mk = nameKey(m);
         if (mk === nameKey(row.name)) continue;
-        const known = groupInfo.get(mk);
+        const known = groupInfo.get(mk) || userInfo.get(mk);
         if (known) {
           if (g.scope === 'global' && known.scope === 'local') continue; // interdit (GG ⊄ DL)
           add({
@@ -741,24 +941,48 @@
     // --- Dossiers et droits ---
     const perms = p.permissions.filter((r) => !validateName('path', r.path) && !validateName('group', r.group) && RIGHTS[r.right]);
     const folderStep = new Map();
-    if (p.options.createFolders) {
-      for (const r of perms) {
-        const path = cleanPath(r.path);
-        const key = nameKey(path);
-        if (folderStep.has(key)) continue;
-        folderStep.set(
-          key,
-          add({
-            kind: 'folder',
-            table: 'permissions',
-            rowId: r.id,
-            label: `Créer le dossier ${path}`,
-            dn: null,
-            command: `if not exist "${path}" mkdir "${path}"`,
-            check: `if exist "${path}\\" (echo "${path}") else (cmd /c exit 1)`,
-          })
-        );
-      }
+    const addFolder = (path, table, rowId) => {
+      const key = nameKey(path);
+      if (folderStep.has(key)) return;
+      folderStep.set(
+        key,
+        add({
+          kind: 'folder',
+          table,
+          rowId,
+          label: `Créer le dossier ${path}`,
+          dn: null,
+          command: `if not exist "${path}" mkdir "${path}"`,
+          check: `if exist "${path}\\" (echo "${path}") else (cmd /c exit 1)`,
+        })
+      );
+    };
+    // Onglet Dossiers (parents d'abord), puis dossiers des permissions si l'option est cochée
+    const folders = p.folders
+      .map((row, index) => ({ row, index, path: cleanPath(row.path) }))
+      .filter((f) => !validateName('path', f.row.path))
+      .sort((a, b) => a.path.split('\\').length - b.path.split('\\').length || a.index - b.index);
+    for (const f of folders) addFolder(f.path, 'folders', f.row.id);
+    if (p.options.createFolders) for (const r of perms) addFolder(cleanPath(r.path), 'permissions', r.id);
+
+    // Héritage cassé : avant les droits AGDLP, qui s'ajoutent ensuite en droits explicites
+    const inheritDone = new Set();
+    for (const f of folders) {
+      const key = nameKey(f.path);
+      if (f.row.inheritance !== 'break' || inheritDone.has(key)) continue;
+      inheritDone.add(key);
+      let command = `icacls "${f.path}" /inheritance:d`;
+      if (p.options.stripUsers) command += ` && icacls "${f.path}" /remove:g ${BROAD_SIDS.join(' ')}`;
+      add({
+        kind: 'inherit',
+        table: 'folders',
+        rowId: f.row.id,
+        label: `Casser l'héritage de ${f.path}${p.options.stripUsers ? ' (sans Utilisateurs)' : ''}`,
+        dn: null,
+        command,
+        check: null,
+        needs: [folderStep.get(key)],
+      });
     }
     for (const r of perms) {
       const path = cleanPath(r.path);
@@ -820,7 +1044,8 @@
     const title = safeText(opts.title) || 'Création AGDLP';
     const L = [];
     L.push('@echo off');
-    L.push('setlocal');
+    // Expansion retardée désactivée : un « ! » (mot de passe) reste un caractère ordinaire
+    L.push('setlocal DisableDelayedExpansion');
     // Page de code d'origine de la console (850 en français) : reprise le temps des recherches « for /f »
     L.push('for /f "tokens=2 delims=:." %%c in (\'chcp\') do set /a AGP_CP=%%c');
     L.push('if not defined AGP_CP set AGP_CP=850');
@@ -837,8 +1062,8 @@
     L.push("rem  Code de sortie = nombre d'étapes en échec - 0 si tout s'est bien passé.");
     L.push('rem ==========================================================================');
     L.push('');
-    const usesDs = list.some((s) => ['ou', 'group', 'member'].includes(s.kind));
-    const usesAcl = list.some((s) => s.kind === 'acl');
+    const usesDs = list.some((s) => ['ou', 'user', 'group', 'member'].includes(s.kind));
+    const usesAcl = list.some((s) => s.kind === 'acl' || s.kind === 'inherit');
     if (usesDs) L.push("where dsadd >nul 2>&1 || (echo ERREUR : dsadd est introuvable. Lancez ce script sur un contrôleur de domaine ou installez les outils RSAT AD DS.& exit /b 1)");
     if (usesAcl) L.push('where icacls >nul 2>&1 || (echo ERREUR : icacls est introuvable.& exit /b 1)');
     L.push("net session >nul 2>&1 || echo ATTENTION : l'invite de commandes ne semble pas lancée en administrateur.");
@@ -903,7 +1128,9 @@
   function toCsv(rows, columns) {
     const cols = Array.isArray(columns) ? columns : [];
     const lines = [cols.map((c) => csvCell(c.label)).join(';')];
-    for (const row of Array.isArray(rows) ? rows : []) lines.push(cols.map((c) => csvCell(row ? row[c.key] : '')).join(';'));
+    for (const row of Array.isArray(rows) ? rows : []) {
+      lines.push(cols.map((c) => csvCell(row ? (c.toText ? c.toText(row[c.key]) : row[c.key]) : '')).join(';'));
+    }
     return '\uFEFF' + lines.join('\r\n') + '\r\n';
   }
 
@@ -1027,6 +1254,7 @@
       if (table === 'permissions') row.right = normalizeRight(row.right) || row.right.toUpperCase();
       if (table === 'globals' || table === 'locals') row.members = splitMembers(row.members).join(', ');
       if (table === 'ous') row.parent = ouSegments(row.parent).join('/');
+      if (table === 'folders') row.inheritance = normalizeInheritance(row.inheritance);
       out.push(row);
     }
     return out;
@@ -1040,16 +1268,20 @@
     return {
       version: 1,
       domain: { dns: '', dn: '', netbios: '' },
-      options: { createFolders: false },
+      options: { createFolders: false, defaultPassword: '', mustChangePassword: true, stripUsers: true },
       ous: [],
+      users: [],
       globals: [],
       locals: [],
+      folders: [],
       permissions: [],
     };
   }
 
   const ROW_FIELDS = {
     ous: ['name', 'parent', 'description'],
+    users: ['login', 'firstName', 'lastName', 'ou', 'password'],
+    folders: ['path', 'inheritance'],
     globals: ['name', 'ou', 'description', 'members'],
     locals: ['name', 'ou', 'description', 'members'],
     permissions: ['path', 'group', 'right'],
@@ -1070,7 +1302,13 @@
     const d = src.domain && typeof src.domain === 'object' ? src.domain : {};
     p.domain = { dns: str(d.dns).trim(), dn: str(d.dn).trim(), netbios: str(d.netbios).trim() };
     const o = src.options && typeof src.options === 'object' ? src.options : {};
-    p.options = { createFolders: o.createFolders === true || o.createFolders === 'true' || o.createFolders === 1 };
+    const bool = (v, dflt) => (v === undefined || v === null || v === '' ? dflt : v === true || v === 'true' || v === 1);
+    p.options = {
+      createFolders: bool(o.createFolders, false),
+      defaultPassword: str(o.defaultPassword),
+      mustChangePassword: bool(o.mustChangePassword, true),
+      stripUsers: bool(o.stripUsers, true),
+    };
     const ids = new Set();
     for (const table of TABLES) {
       const rows = Array.isArray(src[table]) ? src[table] : [];
@@ -1086,6 +1324,7 @@
           row[f] = str(v);
         }
         if (table === 'permissions') row.right = normalizeRight(row.right) || row.right.trim().toUpperCase();
+        if (table === 'folders') row.inheritance = normalizeInheritance(row.inheritance);
         p[table].push(row);
       }
     }
@@ -1124,13 +1363,15 @@
     '80072145': 'Un groupe global ne peut pas contenir de groupe universel.',
     '80072147': "Un groupe global ne peut contenir que des comptes de son propre domaine.",
     '80072148': "Un groupe domaine local ne peut pas contenir de groupe domaine local d'un autre domaine.",
+    '800708c5': 'Mot de passe refusé : il ne respecte pas la stratégie de mot de passe du domaine (longueur, complexité, historique).',
+    '8007052d': 'Mot de passe refusé : il ne respecte pas la stratégie de mot de passe du domaine (longueur, complexité, historique).',
     '80070534': "Aucun mappage entre noms de comptes et SID : le groupe est inconnu (vérifiez le nom NetBIOS et que le groupe existe).",
     '80070002': 'Fichier ou dossier introuvable.',
     '80070003': 'Chemin introuvable.',
     '80070057': 'Paramètre incorrect.',
   };
   /** Codes de sortie Win32 « nus » (icacls, cmd) ramenés à leur HRESULT. */
-  const WIN32_EXIT = { 2: '80070002', 3: '80070003', 5: '80070005', 87: '80070057', 1332: '80070534', 1378: '80070562', 1320: '80070528' };
+  const WIN32_EXIT = { 2: '80070002', 3: '80070003', 5: '80070005', 87: '80070057', 1332: '80070534', 1378: '80070562', 1320: '80070528', 1325: '8007052d', 2245: '800708c5' };
 
   function hex8(n) {
     return (Number(n) >>> 0).toString(16).padStart(8, '0');
@@ -1162,7 +1403,8 @@
     // « Failed processing 0 files » quand tout va bien.
     const dsFailed = /^\s*(dsadd|dsmod|dsquery|dsget)\s*(failed|a\s+échoué|a\s+echoue|:\s*échec)/im.test(output);
     if (exitCode === 0 && !dsFailed) {
-      return { status: 'ok', message: kind === 'member' ? 'Membre ajouté.' : kind === 'acl' ? 'Droit appliqué.' : kind === 'folder' ? 'Dossier prêt.' : 'Créé.', code: null };
+      const okMessages = { member: 'Membre ajouté.', acl: 'Droit appliqué.', folder: 'Dossier prêt.', inherit: 'Héritage cassé.' };
+      return { status: 'ok', message: okMessages[kind] || 'Créé.', code: null };
     }
     const codes = [];
     if (exitCode !== null && exitCode !== 0 && !isNaN(exitCode)) {
@@ -1194,10 +1436,16 @@
   }
 
   return {
+    TABLES,
     PREFIXES,
     RIGHTS,
+    INHERITANCE,
     COLUMNS,
     LIMITS,
+    normalizeInheritance,
+    userDisplayName,
+    validatePassword,
+    passwordWarnings,
     domainToDn,
     dnToDomain,
     splitDn,

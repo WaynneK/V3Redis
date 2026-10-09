@@ -1,7 +1,7 @@
 {
   "name": "hub",
   "productName": "V3Redis",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "Point d'entrée vers les applications (SysInfo Lite, CalkIP, PredF, Agépédé), mises à jour en un seul paquet.",
   "main": "main.js",
   "author": "WaynneK",

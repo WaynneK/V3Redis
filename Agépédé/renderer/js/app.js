@@ -1,7 +1,7 @@
 /*
  * app.js — Interface d'Agépédé.
  *
- * L'état complet est un projet Agdlp (domaine, options, ous, globals, locals, permissions). Les tableaux de
+ * L'état complet est un projet Agdlp (domaine, options, ous, users, globals, locals, folders, permissions). Les tableaux de
  * saisie (grid.js) modifient directement ses lignes ; après chaque modification : vérification
  * (Agdlp.validateProject), surlignage des cellules, script (Agdlp.plan + Agdlp.toBatch) et brouillon local.
  *
@@ -15,11 +15,18 @@
   const api = window.agepede || null;
   const $ = (id) => document.getElementById(id);
 
-  const TABLES = ['ous', 'globals', 'locals', 'permissions'];
-  const TAB_ORDER = ['ous', 'globals', 'locals', 'permissions', 'script'];
-  const TABLE_LABELS = { ous: 'OU', globals: 'Groupes globaux', locals: 'Groupes DL', permissions: 'Permissions', domain: 'Domaine', options: 'Options', project: 'Projet' };
+  const TABLES = ['ous', 'users', 'globals', 'locals', 'folders', 'permissions'];
+  const TAB_ORDER = [...TABLES, 'script'];
+  const TABLE_LABELS = { ous: 'OU', users: 'Utilisateurs', globals: 'Groupes globaux', locals: 'Groupes DL', folders: 'Dossiers', permissions: 'Permissions', domain: 'Domaine', options: 'Options', project: 'Projet' };
   const DRAFT_KEY = 'agepede.draft.v1';
-  const KIND_LABELS = { ou: 'OU', group: 'Groupe', member: 'Appartenance', folder: 'Dossier', acl: 'Permission' };
+  const KIND_LABELS = { ou: 'OU', user: 'Utilisateur', group: 'Groupe', member: 'Appartenance', folder: 'Dossier', inherit: 'Héritage', acl: 'Permission' };
+  /** Options du projet liées à un champ de la page : id → [clé, type]. */
+  const OPTION_INPUTS = {
+    'opt-create-folders': ['createFolders', 'check'],
+    'opt-default-password': ['defaultPassword', 'text'],
+    'opt-must-change': ['mustChangePassword', 'check'],
+    'opt-strip-users': ['stripUsers', 'check'],
+  };
 
   // ------------------------------------------------------------------ utilitaires
 
@@ -135,11 +142,34 @@
       { key: 'parent', label: 'OU parente', list: 'dl-ou-paths', placeholder: 'vide = racine du domaine', width: '32%', aliases: ['Parent', 'OU parent', 'Chemin parent'] },
       { key: 'description', label: 'Description', placeholder: '' },
     ],
+    users: [
+      { key: 'login', label: 'Identifiant', placeholder: 'Nouveau compte, ex. jdupont', width: '17%', aliases: ['Login', 'sAMAccountName', 'Nom d\'ouverture de session', 'Compte'] },
+      { key: 'firstName', label: 'Prénom', placeholder: 'Jean', width: '15%', aliases: ['Prenom', 'First name'] },
+      { key: 'lastName', label: 'Nom', placeholder: 'Dupont', width: '17%', aliases: ['Nom de famille', 'Last name'] },
+      { key: 'ou', label: 'OU', list: 'dl-ou-paths', placeholder: 'vide = conteneur Users', width: '25%' },
+      { key: 'password', label: 'Mot de passe', placeholder: 'vide = mot de passe par défaut', aliases: ['MDP', 'Password'] },
+    ],
     globals: [
       { key: 'name', label: 'Nom', placeholder: 'Nouveau groupe, ex. GG_Compta', width: '22%' },
       { key: 'ou', label: 'OU', list: 'dl-ou-paths', placeholder: 'vide = conteneur Users', width: '20%' },
       { key: 'description', label: 'Description', width: '24%' },
-      { key: 'members', label: 'Membres (utilisateurs)', placeholder: 'jdupont, mmartin', aliases: ['Membres', 'Utilisateurs'] },
+      { key: 'members', label: 'Membres (utilisateurs)', list: 'dl-user-names', multi: true, placeholder: 'jdupont, mmartin', aliases: ['Membres', 'Utilisateurs'] },
+    ],
+    folders: [
+      { key: 'path', label: 'Dossier', placeholder: 'D:\\Partages\\Compta', width: '62%', aliases: ['Chemin', 'Dossier partagé'] },
+      {
+        key: 'inheritance',
+        label: 'Héritage des droits',
+        type: 'toggle',
+        defaultValue: 'keep',
+        coerce: (v) => A.normalizeInheritance(v),
+        aliases: ['Héritage', 'Heritage', 'Héritage (Conservé, Cassé)'],
+        help: 'Cliquez sur le bouton d\'une ligne pour casser ou rétablir l\'héritage des autorisations du dossier.',
+        states: [
+          { value: 'keep', label: '🔗 Conservé', title: 'Le dossier hérite des autorisations de son dossier parent. Cliquez pour casser l\'héritage.' },
+          { value: 'break', label: '✂ Cassé', title: 'L\'héritage sera cassé (icacls /inheritance:d) : les autorisations du parent sont recopiées puis le dossier n\'en hérite plus. Cliquez pour le conserver.' },
+        ],
+      },
     ],
     locals: [
       { key: 'name', label: 'Nom', placeholder: 'Nouveau groupe, ex. DL_Compta_RW', width: '22%' },
@@ -148,7 +178,7 @@
       { key: 'members', label: 'Membres (GG)', list: 'dl-gg-names', multi: true, placeholder: 'GG_Compta, GG_Direction', aliases: ['Membres', 'Groupes globaux'] },
     ],
     permissions: [
-      { key: 'path', label: 'Dossier', placeholder: 'D:\\Partages\\Compta', width: '46%', aliases: ['Chemin', 'Dossier partagé'] },
+      { key: 'path', label: 'Dossier', list: 'dl-folder-paths', placeholder: 'D:\\Partages\\Compta', width: '46%', aliases: ['Chemin', 'Dossier partagé'] },
       { key: 'group', label: 'Groupe DL', list: 'dl-dl-names', placeholder: 'DL_Compta_RW', width: '30%', aliases: ['Groupe'] },
       {
         key: 'right',
@@ -174,6 +204,7 @@
 
   const fieldLabel = (table, field) => {
     if (table === 'domain') return { dns: 'Nom DNS', dn: 'DN', netbios: 'NetBIOS' }[field] || field;
+    if (field === 'defaultPassword') return 'Mot de passe par défaut';
     const col = (COLUMNS[table] || []).find((c) => c.key === field);
     return col ? col.label : field;
   };
@@ -183,6 +214,10 @@
     switch (table) {
       case 'ous':
         return { id, name: '', parent: '', description: '' };
+      case 'users':
+        return { id, login: '', firstName: '', lastName: '', ou: '', password: '' };
+      case 'folders':
+        return { id, path: '', inheritance: 'keep' };
       case 'permissions':
         return { id, path: '', group: '', right: 'R' };
       default:
@@ -190,7 +225,7 @@
     }
   }
 
-  const isBlankRow = (table, row) => COLUMNS[table].every((c) => c.type === 'select' || str(row[c.key]).trim() === '');
+  const isBlankRow = (table, row) => COLUMNS[table].every((c) => c.type === 'select' || c.type === 'toggle' || str(row[c.key]).trim() === '');
 
   /** Projet tel qu'il sera vérifié, enregistré et exécuté : sans les lignes entièrement vides. */
   function effectiveProject() {
@@ -204,7 +239,7 @@
   function shapeProject(obj) {
     const p = A.normalizeProject(obj || A.emptyProject());
     p.domain = p.domain || { dns: '', dn: '', netbios: '' };
-    p.options = p.options || { createFolders: false };
+    p.options = p.options || A.emptyProject().options;
     for (const t of TABLES) {
       if (!Array.isArray(p[t])) p[t] = [];
       for (const r of p[t]) if (!r.id) r.id = A.newId();
@@ -335,11 +370,11 @@
 
   // ------------------------------------------------------------------ listes de suggestions
 
-  function names(table) {
+  function names(table, key = 'name') {
     const seen = new Set();
     const out = [];
     for (const r of state.project[table] || []) {
-      const n = str(r.name).trim();
+      const n = str(r[key]).trim();
       if (n && !seen.has(n.toLowerCase())) {
         seen.add(n.toLowerCase());
         out.push(n);
@@ -377,6 +412,7 @@
     fillDatalist('dl-ou-paths', ouPaths());
     fillDatalist('dl-gg-names', names('globals'));
     fillDatalist('dl-dl-names', names('locals'));
+    fillDatalist('dl-folder-paths', names('folders', 'path'));
   }
 
   const scheduleLists = debounce(refreshLists, 250);
@@ -468,7 +504,7 @@
     const i = rows.findIndex((r) => r.id === id);
     if (i < 0) return '';
     const r = rows[i];
-    const what = str(r.name || r.path).trim();
+    const what = str(r.name || r.login || r.path).trim();
     return `ligne ${i + 1}${what ? ` (${what})` : ''}`;
   }
 
@@ -517,19 +553,27 @@
       return;
     }
     showTab(table);
+    if (li.dataset.field === 'defaultPassword') {
+      $('opt-default-password').focus();
+      return;
+    }
     if (li.dataset.id && !grids[table].reveal(li.dataset.id, li.dataset.field)) grids[table].addRow();
   }
 
   function countKinds(steps) {
-    const c = { ou: 0, group: 0, member: 0, folder: 0, acl: 0 };
+    const c = { ou: 0, user: 0, group: 0, member: 0, folder: 0, inherit: 0, acl: 0 };
     for (const s of steps) if (c[s.kind] !== undefined) c[s.kind] += 1;
     return c;
   }
 
   function describeCounts(steps) {
     const c = countKinds(steps);
-    const parts = [plural(c.ou, 'OU', 'OU'), plural(c.group, 'groupe', 'groupes'), plural(c.member, 'appartenance', 'appartenances'), plural(c.acl, 'permission', 'permissions')];
+    const parts = [plural(c.ou, 'OU', 'OU')];
+    if (c.user) parts.push(plural(c.user, 'utilisateur', 'utilisateurs'));
+    parts.push(plural(c.group, 'groupe', 'groupes'), plural(c.member, 'appartenance', 'appartenances'));
     if (c.folder) parts.push(plural(c.folder, 'dossier', 'dossiers'));
+    if (c.inherit) parts.push(plural(c.inherit, 'héritage cassé', 'héritages cassés'));
+    parts.push(plural(c.acl, 'permission', 'permissions'));
     return parts.join(', ');
   }
 
@@ -541,7 +585,7 @@
     if (state.planError) {
       pre.textContent = `Le script ne peut pas être généré : ${state.planError}`;
     } else if (!state.steps.length) {
-      pre.textContent = 'Aucune commande : remplissez les tableaux OU, groupes et permissions.';
+      pre.textContent = 'Aucune commande : remplissez les tableaux (OU, utilisateurs, groupes, dossiers, permissions).';
     } else {
       const frag = document.createDocumentFragment();
       const lines = state.script.split(/\r?\n/);
@@ -813,7 +857,7 @@
     state.filePath = filePath;
     state.name = name || '';
     fillDomainInputs();
-    $('opt-create-folders').checked = Boolean(state.project.options.createFolders);
+    fillOptionInputs();
     for (const t of TABLES) grids[t].render();
     resetRun();
     state.dirty = !dirty; // force la mise à jour (et l'envoi au processus principal)
@@ -822,6 +866,40 @@
     validate();
     renderEnv();
     saveDraft();
+  }
+
+  function fillOptionInputs() {
+    const o = state.project.options;
+    for (const [id, [key, type]] of Object.entries(OPTION_INPUTS)) {
+      if (type === 'check') $(id).checked = Boolean(o[key]);
+      else $(id).value = str(o[key]);
+    }
+  }
+
+  function wireOptions() {
+    for (const [id, [key, type]] of Object.entries(OPTION_INPUTS)) {
+      $(id).addEventListener(type === 'check' ? 'change' : 'input', (e) => {
+        state.project.options[key] = type === 'check' ? e.target.checked : e.target.value;
+        changed();
+      });
+    }
+    // Afficher / masquer le mot de passe par défaut
+    $('opt-default-password-show').addEventListener('click', (e) => {
+      const input = $('opt-default-password');
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      e.currentTarget.textContent = show ? 'Masquer' : 'Afficher';
+    });
+    // Héritage de tous les dossiers d'un coup
+    for (const [id, value, msg] of [
+      ['btn-break-all', 'break', 'Héritage cassé sur'],
+      ['btn-keep-all', 'keep', 'Héritage conservé sur'],
+    ]) {
+      $(id).addEventListener('click', () => {
+        const n = grids.folders.setAll('inheritance', value);
+        toast(n ? `${msg} ${plural(n, 'dossier', 'dossiers')}.` : 'Aucun changement.', n ? 'ok' : 'info');
+      });
+    }
   }
 
   async function confirmDiscard() {
@@ -986,11 +1064,11 @@
   const STATUS = {
     pending: { label: 'En attente' },
     running: { label: 'En cours…' },
-    ok: { label: '✓ Créé', member: '✓ Ajouté', acl: '✓ Appliqué' },
+    ok: { label: '✓ Créé', member: '✓ Ajouté', acl: '✓ Appliqué', inherit: '✓ Cassé' },
     exists: { label: 'Déjà existant', member: 'Déjà membre', acl: 'Déjà appliqué' },
-    todo: { label: 'À créer', member: 'À ajouter', acl: 'À appliquer' },
+    todo: { label: 'À créer', member: 'À ajouter', acl: 'À appliquer', inherit: 'À appliquer' },
     error: { label: '✗ Erreur' },
-    unknown: { label: '? Non vérifiable', acl: 'À appliquer' },
+    unknown: { label: '? Non vérifiable', acl: 'À appliquer', inherit: 'À appliquer' },
     skipped: { label: 'Ignoré : dépend d\'une étape en échec' },
     cancelled: { label: 'Annulé' },
     notrun: { label: 'Non exécuté' },
@@ -1021,7 +1099,7 @@
       const tools = env.tools || {};
       if (!env.isWindows) reasons.push('Simulation et exécution ne sont possibles que sous Windows, sur un contrôleur de domaine ou un poste avec RSAT. Vous pouvez exporter le script .bat et le lancer là-bas.');
       else if (!tools.dsadd || !tools.dsmod || !tools.dsquery) reasons.push('Outils Active Directory absents (dsadd, dsmod, dsquery) : installez RSAT « Outils AD DS » ou lancez Agépédé sur un contrôleur de domaine. Vous pouvez quand même exporter le script .bat.');
-      else if ((counts.acl || counts.folder) && !tools.icacls) reasons.push('icacls introuvable : les permissions ne peuvent pas être appliquées depuis ce poste.');
+      else if ((counts.acl || counts.folder || counts.inherit) && !tools.icacls) reasons.push('icacls introuvable : les permissions ne peuvent pas être appliquées depuis ce poste.');
     }
     if (state.issues.errors.length) reasons.push(`${plural(state.issues.errors.length, 'erreur à corriger', 'erreurs à corriger')} (voir « Vérification » ci-dessus).`);
     if (state.planError) reasons.push(`Le script ne peut pas être généré : ${state.planError}`);
@@ -1142,7 +1220,7 @@
     const stopped = Boolean(run.summary && run.summary.cancelled) || c.cancelled > 0;
     if (run.dryRun) {
       const parts = [`${c.todo} à faire`, `${c.exists} déjà existant${c.exists > 1 ? 's' : ''}`];
-      if (c.unknown) parts.push(`${c.unknown} non vérifiable${c.unknown > 1 ? 's' : ''} à l'avance (droits icacls)`);
+      if (c.unknown) parts.push(`${c.unknown} non vérifiable${c.unknown > 1 ? 's' : ''} à l'avance (icacls)`);
       if (c.error) parts.push(plural(c.error, 'erreur', 'erreurs'));
       if (notRun) parts.push(`${notRun} non vérifié${notRun > 1 ? 's' : ''}`);
       return `${stopped ? 'Simulation arrêtée' : 'Simulation terminée'} : ${parts.join(', ')}. Rien n'a été modifié.`;
@@ -1344,7 +1422,7 @@
         onChange: () => changed(),
         onPasted: (n) => toast(`${plural(n, 'ligne collée', 'lignes collées')}.`, 'ok'),
         onDelete: (row, index) =>
-          toast(`Ligne supprimée${str(row.name || row.path).trim() ? ` : ${str(row.name || row.path).trim()}` : ''}.`, 'info', {
+          toast(`Ligne supprimée${str(row.name || row.login || row.path).trim() ? ` : ${str(row.name || row.login || row.path).trim()}` : ''}.`, 'info', {
             label: 'Annuler',
             run: () => {
               const rows = state.project[t];
@@ -1353,7 +1431,7 @@
               changed();
             },
           }),
-        multiOptions: (col) => (col.key === 'members' && t === 'locals' ? names('globals') : []),
+        multiOptions: (col) => (col.key !== 'members' ? [] : t === 'locals' ? names('globals') : t === 'globals' ? names('users', 'login') : []),
       });
     }
   }
@@ -1377,10 +1455,7 @@
       else if (b.dataset.action === 'export-csv') exportCsv(t);
     });
 
-    $('opt-create-folders').addEventListener('change', (e) => {
-      state.project.options.createFolders = e.target.checked;
-      changed();
-    });
+    wireOptions();
 
     $('dl-helper-btn').addEventListener('click', createDlForGg);
     $('dl-helper-gg').addEventListener('keydown', (e) => {
@@ -1436,7 +1511,7 @@
       } else if (k === 'n') {
         e.preventDefault();
         newProject();
-      } else if (/^[1-5]$/.test(e.key)) {
+      } else if (/^[1-7]$/.test(e.key)) {
         e.preventDefault();
         showTab(TAB_ORDER[Number(e.key) - 1]);
       }

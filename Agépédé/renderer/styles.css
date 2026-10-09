@@ -401,6 +401,21 @@ code {
   color: var(--warn);
 }
 
+/* Fenêtre étroite : les 7 onglets restent visibles (sigles AGDLP masqués, marges réduites) */
+@media (max-width: 1080px) {
+  .tabs {
+    padding-inline: 8px;
+  }
+
+  .tabs button {
+    padding-inline: 9px;
+  }
+
+  .tab-sigle {
+    display: none;
+  }
+}
+
 /* ------------------------------------------------------------ Vues */
 
 .views {
@@ -457,6 +472,18 @@ code {
 
 .helper input {
   width: 200px;
+}
+
+.helper .check input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.helper-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .helper-note {
@@ -530,6 +557,32 @@ table.grid {
 .grid .cell:focus {
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* Bouton bascule dans une cellule (héritage conservé / cassé) */
+.grid .cell-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.grid .cell-toggle:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.grid .cell-toggle[data-state='break'] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.grid tr.ghost .cell-toggle {
+  opacity: 0.45;
 }
 
 .grid tr.ghost .cell::placeholder {

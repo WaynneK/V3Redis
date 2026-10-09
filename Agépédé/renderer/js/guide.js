@@ -39,12 +39,22 @@
   const EXAMPLE = {
     version: 1,
     domain: { dns: 'lab.local', dn: 'DC=lab,DC=local', netbios: 'LAB' },
-    options: { createFolders: true },
+    options: { createFolders: true, defaultPassword: 'Bienvenue2026!', mustChangePassword: true, stripUsers: true },
     ous: [
       { name: 'Paris', parent: '', description: 'Site de Paris' },
       { name: 'Groupes', parent: 'Paris', description: 'Groupes de sécurité' },
       { name: 'Utilisateurs', parent: 'Paris', description: 'Comptes du site' },
       { name: 'Serveurs', parent: 'Paris', description: 'Serveurs de fichiers' },
+    ],
+    users: [
+      { login: 'jdupont', firstName: 'Jean', lastName: 'Dupont', ou: 'Paris/Utilisateurs', password: '' },
+      { login: 'mmartin', firstName: 'Marie', lastName: 'Martin', ou: 'Paris/Utilisateurs', password: '' },
+      { login: 'pdurand', firstName: 'Paul', lastName: 'Durand', ou: 'Paris/Utilisateurs', password: '' },
+      { login: 'cbernard', firstName: 'Claire', lastName: 'Bernard', ou: 'Paris/Utilisateurs', password: 'Direction#2026' },
+    ],
+    folders: [
+      { path: 'D:\\Partages\\Compta', inheritance: 'break' },
+      { path: 'D:\\Partages\\RH', inheritance: 'break' },
     ],
     globals: [
       { name: 'GG_Compta', ou: 'Paris/Groupes', description: 'Service comptabilité', members: 'jdupont, mmartin' },
@@ -73,6 +83,8 @@
   const SHOT_SPECS = {
     overview: { tab: 'ous', markers: [['#btn-new', 'l'], ['#dom-dns', 'r'], ['#btn-detect', 'r'], ['#env-chips .chip', 'l'], ['#tab-ous', 'l'], [row1('ous', 'name'), 'l'], ['#grid-ous tr.ghost td[data-field="name"]', 'l'], ['#view-ous .toolbar-actions', 'l'], ['#btn-help', 'b']] },
     domain: { tab: 'ous', crop: '.domainbar', markers: [['#dom-dns', 'r'], ['#dom-dn', 'r'], ['#dom-netbios', 'r'], ['#btn-detect', 'r'], ['#env-chips .chip', 'l'], ['#btn-elevate', 'r'], ['#opt-always-admin', 'l'], ['#env-badge', 'l']] },
+    users: { tab: 'users', markers: [[row1('users', 'login'), 'l'], [row1('users', 'ou'), 'l'], [row1('users', 'password'), 'l'], ['#opt-default-password', 'r'], ['#opt-must-change', 'l']] },
+    folders: { tab: 'folders', markers: [[row1('folders', 'path'), 'l'], ['#grid-folders tbody tr:not(.ghost) .cell-toggle[data-state="break"]', 'r'], ['#btn-break-all', 'l'], ['#opt-strip-users', 'l']] },
     globals: { tab: 'globals', markers: [[row1('globals', 'name'), 'l'], [row1('globals', 'ou'), 'l'], [row1('globals', 'members'), 'l'], ['#grid-globals .has-error', 'r'], ['#tab-globals .count', 'r']] },
     locals: { tab: 'locals', markers: [['#dl-helper-gg', 'l'], ['#dl-helper-btn', 'r'], [row1('locals', 'members'), 'l'], ['#tab-locals', 'l']] },
     permissions: { tab: 'permissions', markers: [[row1('permissions', 'path'), 'l'], [row1('permissions', 'group'), 'l'], [row1('permissions', 'right'), 'l'], ['#view-permissions label.check', 't']] },
@@ -80,8 +92,8 @@
     run: {
       tab: 'script',
       scroll: '#view-script .panel:last-child',
-      logScroll: '#run-log-body tr.log-row[data-i="8"]',
-      markers: [['#run-summary', 'l'], ['#run-log-body tr.log-row[data-i="10"]', 'l'], ['#run-log-body tr.log-detail:not([hidden])', 'l'], ['#run-log-body tr.log-row.s-error td.st', 'r'], ['#btn-export-log', 'b']],
+      logScroll: '#run-log-body tr.log-row[data-i="5"]',
+      markers: [['#run-summary', 'l'], ['#run-log-body tr.log-row[data-i="6"]', 'l'], ['#run-log-body tr.log-detail:not([hidden])', 'l'], ['#run-log-body tr.log-row.s-error td.st', 'r'], ['#btn-export-log', 'b']],
     },
   };
 
@@ -107,10 +119,23 @@
       '**Toujours démarrer en administrateur** : la demande d\'élévation est faite à chaque lancement.',
       '**Résumé** de l\'environnement : ce qu\'Agépédé pourra faire sur ce poste.',
     ],
+    users: [
+      '**Identifiant** : nom d\'ouverture de session (`jdupont`), 20 caractères au plus.',
+      '**OU** où créer le compte (vide = conteneur Users).',
+      '**Mot de passe** du compte ; vide = mot de passe par défaut.',
+      '**Mot de passe par défaut** des lignes sans mot de passe (« Afficher » pour le lire).',
+      '**Changer le mot de passe à la première connexion** (option cochée par défaut).',
+    ],
+    folders: [
+      '**Dossier** à créer : chemin local du serveur (`D:\\Partages\\Compta`) ou UNC.',
+      '**Héritage** : un clic sur le bouton le **casse** (✂ Cassé) ou le **conserve** (🔗 Conservé).',
+      '**Tous les dossiers** d\'un coup : casser partout ou tout conserver.',
+      '**Retirer « Utilisateurs »** et « Utilisateurs authentifiés » recopiés du parent : seuls les administrateurs et vos groupes DL gardent l\'accès.',
+    ],
     globals: [
       '**Nom** du groupe global, préfixe conseillé `GG_`.',
       '**OU** où le créer : chemin `Paris/Groupes` (suggestions des OU du tableau ; vide = conteneur Users).',
-      '**Membres** : identifiants des utilisateurs (sAMAccountName), séparés par des virgules.',
+      '**Membres** : identifiants des utilisateurs (onglet Utilisateurs ou déjà dans l\'AD), séparés par des virgules.',
       '**Erreur** : cellule en rouge, le message s\'affiche au survol. Ici un « ; » interdit.',
       '**Compteur** de lignes de l\'onglet ; une pastille rouge signale des erreurs.',
     ],
@@ -124,7 +149,7 @@
       '**Dossier** : chemin local du serveur de fichiers (`D:\\Partages\\Compta`) ou UNC.',
       '**Groupe DL** qui reçoit le droit (suggestions des DL du tableau).',
       '**Droit** : Lecture, Modification ou Contrôle total (hérité par les sous-dossiers).',
-      '**Créer les dossiers absents** avant d\'appliquer les droits.',
+      '**Créer les dossiers absents** qui ne sont pas dans l\'onglet Dossiers.',
     ],
     script: [
       '**Vérification** : erreurs (bloquantes) et avertissements ; un clic mène à la cellule concernée.',
@@ -237,13 +262,15 @@
       id: 'start',
       title: 'Prise en main',
       build: (c) => {
-        c.appendChild(para('Agépédé crée dans **Active Directory** les unités d\'organisation (OU), les groupes globaux (GG), les groupes domaine local (DL) et les permissions de dossiers, selon le modèle **AGDLP**. Vous remplissez des tableaux, Agépédé écrit et lance les commandes CMD.'));
+        c.appendChild(para('Agépédé crée dans **Active Directory** les unités d\'organisation (OU), les comptes utilisateurs, les groupes globaux (GG), les groupes domaine local (DL), puis les dossiers et leurs permissions, selon le modèle **AGDLP**. Vous remplissez des tableaux, Agépédé écrit et lance les commandes CMD.'));
         c.appendChild(
           steps([
             ['Le domaine', 'Saisissez le nom DNS (`lab.local`) ou cliquez sur **Détecter** sur un serveur du domaine.'],
             ['Les OU', 'Onglet **OU** : l\'arborescence (`Paris`, puis `Groupes` avec l\'OU parente `Paris`).'],
+            ['Les utilisateurs', 'Onglet **Utilisateurs** : identifiant, prénom, nom, OU et mot de passe de chaque compte.'],
             ['Les groupes globaux', 'Onglet **GG** : un groupe par service, avec ses utilisateurs.'],
             ['Les groupes domaine local', 'Onglet **DL** : un groupe par dossier et par niveau d\'accès, contenant les GG.'],
+            ['Les dossiers', 'Onglet **Dossiers** : les dossiers à créer ; un clic sur **Héritage** le casse.'],
             ['Les permissions', 'Onglet **Permissions** : chaque DL reçoit son droit sur son dossier.'],
             ['Vérifier et exécuter', 'Onglet **Script & exécution** : corrigez les erreurs, faites une **Simulation**, puis **Exécutez**.'],
           ])
@@ -277,8 +304,11 @@
             '**OU parente** et **OU** : chemin de haut en bas séparé par `/` (`Paris/Groupes`). Vide = racine du domaine (OU) ou conteneur Users (groupes).',
           ])
         );
+        c.appendChild(figure('users', 'Onglet Utilisateurs : les comptes et leur mot de passe.'));
         c.appendChild(figure('globals', 'Onglet Groupes globaux : saisie et contrôle immédiat.'));
         c.appendChild(figure('locals', 'Onglet Groupes domaine local : le raccourci « Créer les DL pour un GG ».'));
+        c.appendChild(figure('folders', 'Onglet Dossiers : le bouton Héritage de chaque ligne.'));
+        c.appendChild(para('**Casser l\'héritage** d\'un dossier (`icacls /inheritance:d`) : il ne reprend plus les autorisations de son dossier parent. Les droits hérités sont d\'abord recopiés, puis « Utilisateurs » et « Utilisateurs authentifiés » sont retirés (option cochée) : seuls les administrateurs et les groupes DL de l\'onglet Permissions y ont accès.'));
         c.appendChild(figure('permissions', 'Onglet Permissions.'));
       },
     },
@@ -337,7 +367,7 @@
         c.appendChild(
           list([
             '[[Ctrl]]+[[N]] nouveau · [[Ctrl]]+[[O]] ouvrir · [[Ctrl]]+[[S]] enregistrer · [[Ctrl]]+[[Maj]]+[[S]] enregistrer sous.',
-            '[[Ctrl]]+[[1]] à [[Ctrl]]+[[5]] : onglets · [[F1]] : ce guide.',
+            '[[Ctrl]]+[[1]] à [[Ctrl]]+[[7]] : onglets · [[F1]] : ce guide.',
             'Le projet en cours est gardé en brouillon : il est restauré si Agépédé est fermé sans enregistrer.',
           ])
         );
@@ -347,7 +377,8 @@
             ['« Outils AD absents »', 'Lancez Agépédé sur un contrôleur de domaine, ou installez la fonctionnalité Windows « RSAT : outils AD DS ». Vous pouvez aussi exporter le `.bat` et le lancer sur le serveur.'],
             ['« Administrateur : non »', 'Cliquez sur « relancer en administrateur » dans la pastille (le projet est conservé), ou cochez « Toujours démarrer en administrateur ».'],
             ['« Introuvable dans l\'Active Directory »', 'Le membre indiqué n\'existe pas : vérifiez l\'identifiant (sAMAccountName) de l\'utilisateur ou le nom du groupe.'],
-            ['« existe déjà ailleurs dans le domaine »', 'Un groupe porte déjà ce nom dans une autre OU : renommez la ligne ou supprimez-la du tableau.'],
+            ['« existe déjà ailleurs dans le domaine »', 'Un compte ou un groupe porte déjà ce nom dans une autre OU : renommez la ligne ou supprimez-la du tableau.'],
+            ['« Mot de passe refusé »', 'Le mot de passe ne respecte pas la stratégie du domaine (par défaut : 7 caractères, majuscules, minuscules, chiffres ou symboles, sans l\'identifiant).'],
             ['Étape « ignorée »', 'Une étape dont elle dépend a échoué (par exemple l\'OU parente) : corrigez la première erreur puis relancez.'],
           ])
         );
@@ -409,7 +440,7 @@
     {
       title: 'Bienvenue dans Agépédé',
       text: [
-        'Agépédé crée vos **OU**, **groupes globaux**, **groupes domaine local** et **permissions** dans Active Directory, selon le modèle **AGDLP**.',
+        'Agépédé crée vos **OU**, **utilisateurs**, **groupes globaux**, **groupes domaine local**, **dossiers** et **permissions**, selon le modèle **AGDLP**.',
         'Vous remplissez des tableaux, Agépédé vérifie tout puis écrit et lance les commandes CMD (`dsadd`, `dsmod`, `icacls`).',
         'Cette visite présente l\'écran en 1 minute.',
       ],
@@ -417,10 +448,12 @@
     },
     { target: '.domainbar', title: 'Le domaine', text: ['Saisissez le **nom DNS** du domaine (`lab.local`) : le DN et le nom NetBIOS se remplissent seuls.', 'Sur un serveur du domaine, **Détecter** les lit pour vous.'] },
     { target: '#env-chips', title: 'L\'état du poste', text: ['Ces pastilles indiquent si les **outils AD** sont présents, si Agépédé est **administrateur** et si le poste est dans le domaine.', 'Besoin des droits ? « **relancer en administrateur** » rouvre Agépédé sans perdre le projet.'] },
-    { target: '.tabs', title: 'Les étapes AGDLP', text: ['Un onglet par étape : **OU** → **groupes globaux** → **groupes domaine local** → **permissions** → **script**.', 'Chaque onglet affiche son nombre de lignes et ses erreurs. Raccourcis [[Ctrl]]+[[1]] à [[Ctrl]]+[[5]].'], tab: 'ous' },
+    { target: '.tabs', title: 'Les étapes AGDLP', text: ['Un onglet par étape : **OU** → **utilisateurs** → **groupes globaux** → **domaine local** → **dossiers** → **permissions** → **script**.', 'Chaque onglet affiche son nombre de lignes et ses erreurs. Raccourcis [[Ctrl]]+[[1]] à [[Ctrl]]+[[7]].'], tab: 'ous' },
     { target: '#grid-ous', title: 'La saisie en tableau', text: ['Tapez dans la **ligne vide du bas** : elle devient une vraie ligne. [[Entrée]] passe à la ligne suivante, [[Tab]] à la cellule suivante.', 'Vous pouvez **coller un bloc copié depuis Excel** : il remplit plusieurs lignes d\'un coup.'], tab: 'ous' },
     { target: '#view-ous .toolbar-actions', title: 'Importer et exporter', text: ['Chaque tableau s\'importe et s\'exporte en **CSV** (Excel).', 'Le projet complet s\'enregistre avec **Enregistrer** ([[Ctrl]]+[[S]]).'], tab: 'ous' },
+    { target: '#users-options', title: 'Les utilisateurs', text: ['Un compte par ligne : identifiant, prénom, nom, OU. Le **mot de passe par défaut** sert aux lignes sans mot de passe.', 'Ajoutez ensuite les comptes dans leurs groupes globaux (onglet GG).'], tab: 'users' },
     { target: '#dl-helper', title: 'Le raccourci DL', text: ['Tapez le nom d\'un groupe global : Agépédé crée ses deux groupes domaine local, **lecture** (`_R`) et **modification** (`_RW`), qui le contiennent.'], tab: 'locals' },
+    { target: '#folders-options', title: 'Les dossiers et l\'héritage', text: ['Listez les dossiers à créer. Le bouton **Héritage** de chaque ligne **casse** l\'héritage d\'un clic (✂ Cassé) : le dossier ne reprend plus les droits de son parent.', 'Ou d\'un coup pour tous : « Casser l\'héritage partout ».'], tab: 'folders' },
     { target: '#view-script .panel', title: 'La vérification', text: ['Les **erreurs** bloquent l\'exécution, les **avertissements** conseillent.', 'Cliquez sur un message pour aller directement à la cellule concernée.'], tab: 'script' },
     { target: '#script-preview', title: 'Le script CMD', text: ['Les commandes exactes, dans l\'ordre. **Copiez**-les ou **exportez** un fichier `.bat` pour le lancer vous-même sur le serveur.'], tab: 'script' },
     { target: '#btn-simulate', targetBox: '.view-script .panel:last-child .panel-actions', title: 'Simuler, puis exécuter', text: ['**Simulation** : montre ce qui existe déjà, sans rien modifier.', '**Exécuter sur l\'AD** crée réellement, après confirmation. Rien n\'est jamais supprimé ; le script peut être relancé sans risque.'], tab: 'script' },

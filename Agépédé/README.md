@@ -3,9 +3,11 @@
 **Agépédé** (jeu de mots sur **AGDLP**) crée dans Active Directory, à partir de simples tableaux :
 
 - les **unités d'organisation** (OU), y compris imbriquées ;
+- les **comptes utilisateurs** (identifiant, prénom, nom, OU, mot de passe) ;
 - les **groupes globaux** (GG) et leurs membres (comptes utilisateurs) ;
 - les **groupes domaine local** (DL) et leurs membres (groupes globaux) ;
-- les **permissions NTFS** données aux DL sur les dossiers partagés (et, en option, les dossiers absents).
+- les **dossiers** du serveur de fichiers, avec un bouton par dossier pour **casser l'héritage** des autorisations ;
+- les **permissions NTFS** données aux DL sur ces dossiers.
 
 Tout passe par les commandes classiques de l'invite de commandes Windows : `dsadd`, `dsmod`, `dsquery`, `icacls`.
 Le script CMD complet est affiché avant toute action ; il peut être copié, exporté en `.bat`, simulé ou exécuté
@@ -42,7 +44,8 @@ directement depuis l'application.
 - **Bouton « Aide »** (ou F1) : guide illustré intégré à l'application, avec des **captures annotées** (repères
   numérotés et légendes ; survoler une légende met son repère en évidence), en thème clair ou sombre selon Windows :
   prise en main, domaine et poste, saisie des tableaux, vérification et exécution, AGDLP en bref, raccourcis et dépannage.
-  On peut y **revoir la visite guidée** et **charger un projet d'exemple** (lab.local : 4 OU, 3 GG, 3 DL, 3 permissions).
+  On peut y **revoir la visite guidée** et **charger un projet d'exemple** (lab.local : 4 OU, 4 utilisateurs, 3 GG, 3 DL,
+  2 dossiers à héritage cassé, 3 permissions).
 - Les captures sont produites par `npm run guide:captures` (`scripts/capture-guide.js`) : l'application est ouverte
   avec l'exemple sur un environnement simulé (aucune commande lancée) et chaque repère est placé d'après la position
   réelle de l'élément. À relancer après une modification de l'interface.
@@ -51,20 +54,25 @@ directement depuis l'application.
 
 1. **Domaine** : nom DNS (`lab.local`) ; le DN (`DC=lab,DC=local`) et le nom NetBIOS (`LAB`) sont calculés et restent modifiables.
    « Détecter » lit le domaine de la machine et vérifie les outils AD, les droits administrateur et le type de Windows.
-2. **Onglets OU, GG, DL, Permissions** : une ligne par objet. La ligne vide du bas devient une vraie ligne dès qu'on y tape.
+2. **Onglets OU, Utilisateurs, GG, DL, Dossiers, Permissions** : une ligne par objet. La ligne vide du bas devient une vraie ligne dès qu'on y tape.
    - Entrée / Maj+Entrée : ligne suivante / précédente, Tab : cellule suivante, Ctrl+Suppr : supprimer la ligne.
    - **Coller depuis Excel** : un bloc de cellules copié (lignes et colonnes) remplit le tableau à partir de la cellule active ;
      une ligne d'en-têtes copiée avec le bloc est ignorée.
    - Les erreurs et avertissements sont surlignés en direct dans les cellules (message en info-bulle).
+   - Onglet Utilisateurs : un **mot de passe par défaut** sert aux lignes sans mot de passe ; « Changer le mot de passe à la
+     première connexion » est coché par défaut. Les comptes s'ajoutent ensuite dans les GG (colonne Membres, suggestions).
    - Onglet DL : « Créer les DL pour un GG » ajoute `DL_<Nom>_R` et `DL_<Nom>_RW` contenant ce GG.
+   - Onglet Dossiers : le bouton **Héritage** de chaque ligne bascule entre « Conservé » et « Cassé » (ou « Casser l'héritage
+     partout »). Casser = `icacls /inheritance:d` (droits hérités recopiés), puis, option cochée par défaut, retrait
+     d'« Utilisateurs » et « Utilisateurs authentifiés » : seuls les administrateurs et les DL de l'onglet Permissions gardent l'accès.
 3. **Script & exécution** : liste des erreurs (bloquantes) et avertissements — un clic mène à la cellule —, aperçu du script,
    « Copier », « Exporter .bat », « Simulation » (indique ce qui existe déjà, sans rien modifier), « Exécuter sur l'AD »
-   (confirmation avec le domaine et le nombre d'OU, de groupes, d'appartenances et de permissions), « Arrêter »,
+   (confirmation avec le domaine et le nombre d'OU, d'utilisateurs, de groupes, d'appartenances, de dossiers et de permissions), « Arrêter »,
    journal détaillé (cliquer une ligne pour voir la commande et sa sortie) et « Exporter le journal ».
 4. **Projet** : Nouveau, Ouvrir, Enregistrer, Enregistrer sous (fichier `.agepede.json`). Un brouillon est conservé
    automatiquement et restauré au démarrage ; la fermeture avec des modifications non enregistrées demande confirmation.
 
-Raccourcis : Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Maj+S, Ctrl+1 à Ctrl+5 (onglets), F1 (aide).
+Raccourcis : Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Maj+S, Ctrl+1 à Ctrl+7 (onglets), F1 (aide).
 
 ## Formats CSV
 
@@ -75,8 +83,10 @@ Import et export par tableau (boutons « Importer CSV… » / « Exporter CSV…
 | Tableau | Colonnes (dans cet ordre) |
 | --- | --- |
 | OU | `Nom;OU parente;Description` — OU parente vide = racine du domaine, sinon chemin `Paris/Compta` |
+| Utilisateurs | `Identifiant;Prénom;Nom;OU;Mot de passe` — mot de passe vide = mot de passe par défaut du projet |
 | Groupes globaux | `Nom;OU;Description;Membres (utilisateurs)` — OU vide = conteneur `CN=Users` ; membres = sAMAccountName séparés par des virgules |
 | Groupes domaine local | `Nom;OU;Description;Membres (groupes globaux)` |
+| Dossiers | `Dossier;Héritage (Conservé, Cassé)` — « Cassé », « oui » ou « x » cassent l'héritage |
 | Permissions | `Dossier;Groupe DL;Droit (R, RW, F)` — `R` Lecture (RX), `RW` Modification (M), `F` Contrôle total ; les libellés français sont acceptés |
 
 Exemple (OU) :
@@ -94,14 +104,18 @@ Référence complète, syntaxe vérifiée et sources : [docs/COMMANDES.md](docs/
 ```bat
 rem OU (les parents d'abord)
 dsadd ou "OU=Compta,OU=Paris,DC=lab,DC=local" -desc "Service comptable"
+rem Utilisateur (mot de passe de la ligne ou mot de passe par défaut)
+dsadd user "CN=Jean Dupont,OU=Utilisateurs,OU=Paris,DC=lab,DC=local" -samid jdupont -upn "jdupont@lab.local" -fn Jean -ln Dupont -display "Jean Dupont" -pwd "Bienvenue2026!" -mustchpwd yes -disabled no
 rem Groupe global (-scope g) ou domaine local (-scope l), groupe de sécurité
 dsadd group "CN=GG_Compta,OU=Compta,OU=Paris,DC=lab,DC=local" -secgrp yes -scope g -samid GG_Compta -desc "Comptables"
 rem Membre décrit dans les tableaux : par son DN
 dsmod group "CN=DL_Compta_RW,OU=Compta,OU=Paris,DC=lab,DC=local" -addmbr "CN=GG_Compta,OU=Compta,OU=Paris,DC=lab,DC=local"
 rem Membre existant dans l'AD (utilisateur) : recherché par son sAMAccountName, puis ajouté par son DN
 (dsquery user -samid jdupont -limit 1 | findstr "=" >nul || (echo    Introuvable ...& cmd /c exit 1)) && for /f "delims=" %%u in ('dsquery user -samid jdupont -limit 1') do @dsmod group "CN=GG_Compta,..." -addmbr "%%~u"
-rem Dossier (option « Créer les dossiers absents »)
+rem Dossier (onglet Dossiers, ou option « Créer les dossiers absents »)
 if not exist "D:\Partages\Compta" mkdir "D:\Partages\Compta"
+rem Héritage cassé (droits hérités recopiés, puis Utilisateurs et Utilisateurs authentifiés retirés par leur SID)
+icacls "D:\Partages\Compta" /inheritance:d && icacls "D:\Partages\Compta" /remove:g *S-1-5-32-545 *S-1-5-11
 rem Permission NTFS héritée par les sous-dossiers et fichiers
 icacls "D:\Partages\Compta" /grant "LAB\DL_Compta_RW:(OI)(CI)M"
 ```
@@ -115,14 +129,16 @@ fait la recherche dans la page de code d'origine de la console : un DN accentué
 
 ## Sécurité
 
-- **Rien n'est jamais supprimé ni modifié** : Agépédé crée des objets et ajoute des membres ou des droits, c'est tout
-  (aucun `dsrm`, `dsmove`, `icacls /remove` ou `/reset`).
+- **Rien n'est jamais supprimé dans l'annuaire** : Agépédé crée des objets et ajoute des membres ou des droits (aucun
+  `dsrm`, `dsmove`, `icacls /reset`). Seule exception, sur les dossiers dont on **casse l'héritage** : avec l'option
+  cochée, les droits d'« Utilisateurs » et « Utilisateurs authentifiés » recopiés du parent sont retirés (`icacls /remove:g`).
 - **Le script affiché est le script exécuté** : pour exécuter, l'interface envoie le projet ; le processus principal le
   revérifie et régénère lui-même les commandes avec le même moteur (`lib/agdlp.js`) — il refuse s'il reste une erreur.
   Seule nuance : pour un membre recherché par son identifiant, la recherche `dsquery` et le `dsmod` du script sont
   lancés l'un après l'autre (sans `for /f`), le `dsmod` réel figurant dans le journal.
 - Les noms sont vérifiés avant d'entrer dans une ligne de commande : les caractères interprétés par cmd.exe
-  (`" % ! ^ & | < >`) sont refusés, les DN sont échappés.
+  (`" % ! ^ & | < >`) sont refusés, les DN sont échappés. Les mots de passe (toujours entre guillemets) refusent
+  seulement `"` et `%` ; ils apparaissent **en clair** dans le script affiché, le `.bat` exporté et le fichier projet.
 - Confirmation native avant toute exécution réelle ; une seule exécution à la fois ; arrêt possible à tout moment
   (les commandes déjà passées ne sont pas annulées).
 - Application locale : aucune connexion réseau depuis l'interface (CSP stricte, isolation de contexte, sandbox),

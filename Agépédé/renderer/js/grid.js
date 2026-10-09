@@ -1,5 +1,5 @@
 /*
- * grid.js — Tableau de saisie d'Agépédé (une instance par onglet : OU, GG, DL, permissions).
+ * grid.js — Tableau de saisie d'Agépédé (une instance par onglet : OU, utilisateurs, GG, DL, dossiers, permissions).
  *
  * - chaque ligne est une suite de champs ; le tableau modifie directement le tableau de lignes du projet ;
  * - une ligne vide est toujours présente en bas : dès qu'on y tape, elle devient une vraie ligne ;
@@ -27,7 +27,8 @@
      * opts : {
      *   table: 'ous' | 'globals' | 'locals' | 'permissions',
      *   el: conteneur,
-     *   columns: [{ key, label, type: 'text'|'select', options: [{ value, label }], list: id de datalist,
+     *   columns: [{ key, label, type: 'text'|'select'|'toggle', options: [{ value, label }],
+     *               states: [{ value, label, title, cls }] (bouton bascule), list: id de datalist,
      *               multi: true (liste séparée par des virgules), placeholder, width, coerce(value) }],
      *   getRows: () => tableau de lignes (référence vivante du projet),
      *   newRow: () => nouvelle ligne avec un id,
@@ -100,6 +101,8 @@
       this.tbody.addEventListener('focusin', (e) => this.onFocusIn(e));
       this.tbody.addEventListener('focusout', (e) => this.onFocusOut(e));
       this.tbody.addEventListener('click', (e) => {
+        const toggle = e.target.closest('.cell-toggle');
+        if (toggle) return this.onToggle(toggle);
         const btn = e.target.closest('.row-del');
         if (btn) this.deleteRow(btn.closest('tr').dataset.rowId);
       });
@@ -112,7 +115,12 @@
       const td = document.createElement('td');
       td.dataset.field = col.key;
       let input;
-      if (col.type === 'select') {
+      if (col.type === 'toggle') {
+        // Bouton à deux états (ex. héritage conservé / cassé) : un clic ou Espace bascule la valeur
+        input = document.createElement('button');
+        input.type = 'button';
+        this.setToggle(input, col, row ? row[col.key] : col.defaultValue);
+      } else if (col.type === 'select') {
         input = document.createElement('select');
         for (const opt of col.options) {
           const o = document.createElement('option');
@@ -138,11 +146,43 @@
         input.value = row && row[col.key] != null ? String(row[col.key]) : '';
         if (!row && col.placeholder) input.placeholder = col.placeholder;
       }
-      input.className = 'cell';
+      input.className = col.type === 'toggle' ? 'cell cell-toggle' : 'cell';
       input.dataset.field = col.key;
-      input.setAttribute('aria-label', col.label);
+      if (col.type !== 'toggle') input.setAttribute('aria-label', col.label);
       td.appendChild(input);
       return td;
+    }
+
+    /** Valeur d'un bouton bascule : col.states = [{ value, label, title, cls }], le premier par défaut. */
+    setToggle(btn, col, value) {
+      const st = col.states.find((s) => s.value === value) || col.states[0];
+      btn.value = st.value;
+      btn.textContent = st.label;
+      btn.title = st.title || '';
+      btn.dataset.state = st.cls || st.value;
+      btn.setAttribute('aria-pressed', String(st !== col.states[0]));
+      btn.setAttribute('aria-label', `${col.label} : ${st.label}`);
+    }
+
+    /** Clic sur un bouton bascule : état suivant, puis même chemin qu'une saisie. */
+    onToggle(btn) {
+      const col = this.columns.find((c) => c.key === btn.dataset.field);
+      if (!col) return;
+      const i = col.states.findIndex((s) => s.value === btn.value);
+      this.setToggle(btn, col, col.states[(i + 1) % col.states.length].value);
+      this.onInput({ target: btn });
+    }
+
+    /** Toutes les lignes prennent la même valeur (ex. « Casser l'héritage partout »). */
+    setAll(field, value) {
+      let n = 0;
+      for (const row of this.rows()) {
+        if (row[field] !== value) n += 1;
+        row[field] = value;
+      }
+      this.render();
+      if (n) this.o.onChange('edit');
+      return n;
     }
 
     makeRow(row, index) {
@@ -287,7 +327,7 @@
     }
 
     isBlank(row) {
-      return this.columns.every((c) => c.type === 'select' || String(row[c.key] == null ? '' : row[c.key]).trim() === '');
+      return this.columns.every((c) => c.type === 'select' || c.type === 'toggle' || String(row[c.key] == null ? '' : row[c.key]).trim() === '');
     }
 
     /**

@@ -347,7 +347,7 @@ test('plan : DN échappé, guillemets selon besoin, domaine invalide → aucune 
 test('toBatch : en-tête, CRLF, chcp, %% doublés, comptage et code de sortie', () => {
   const steps = A.plan(sample());
   const bat = A.toBatch(steps, { title: 'Projet Compta', domain: { dns: 'lab.local', netbios: 'LAB' }, date: new Date(2026, 9, 8, 14, 30) });
-  assert.ok(bat.startsWith('@echo off\r\nsetlocal\r\nfor /f "tokens=2 delims=:." %%c in (\'chcp\') do set /a AGP_CP=%%c\r\nif not defined AGP_CP set AGP_CP=850\r\nchcp 65001 >nul\r\n'));
+  assert.ok(bat.startsWith('@echo off\r\nsetlocal DisableDelayedExpansion\r\nfor /f "tokens=2 delims=:." %%c in (\'chcp\') do set /a AGP_CP=%%c\r\nif not defined AGP_CP set AGP_CP=850\r\nchcp 65001 >nul\r\n'));
   assert.ok(!/[^\r]\n/.test(bat), 'uniquement des fins de ligne CRLF');
   assert.ok(bat.endsWith('exit /b %ERR%\r\n'));
   assert.ok(!/\bpause\b/i.test(bat.replace(/^rem.*$/gim, '')), 'pas de pause');
@@ -456,10 +456,12 @@ test('emptyProject et newId', () => {
   assert.deepEqual(A.emptyProject(), {
     version: 1,
     domain: { dns: '', dn: '', netbios: '' },
-    options: { createFolders: false },
+    options: { createFolders: false, defaultPassword: '', mustChangePassword: true, stripUsers: true },
     ous: [],
+    users: [],
     globals: [],
     locals: [],
+    folders: [],
     permissions: [],
   });
   const ids = new Set(Array.from({ length: 2000 }, () => A.newId()));
@@ -536,4 +538,135 @@ test('classifyResult : code 0 mais « dsadd failed » → erreur ; repli texte ;
   assert.equal(A.classifyResult({ exitCode: 1, output: 'The object already exists.', kind: 'group' }).status, 'exists');
   assert.equal(A.classifyResult({ exitCode: null, output: '' }).status, 'error');
   assert.equal(A.classifyResult({ exitCode: 3, output: 'bizarre' }).status, 'error');
+});
+
+// --- Utilisateurs et dossiers -------------------------------------------------
+
+/** Projet avec l'onglet Utilisateurs et l'onglet Dossiers. */
+function sampleFull(options) {
+  return sample({
+    options: Object.assign({ createFolders: false, defaultPassword: 'Bienvenue2026!', mustChangePassword: true, stripUsers: true }, options || {}),
+    ous: [
+      { id: 'o1', name: 'Paris', parent: '', description: '' },
+      { id: 'o3', name: 'Utilisateurs', parent: 'Paris', description: '' },
+      { id: 'o2', name: 'Groupes', parent: 'Paris', description: '' },
+    ],
+    users: [
+      { id: 'u1', login: 'jdupont', firstName: 'Jean', lastName: 'Dupont', ou: 'Paris/Utilisateurs', password: '' },
+      { id: 'u2', login: 'mmartin', firstName: 'Marie', lastName: 'Martin', ou: 'Paris/Utilisateurs', password: 'Az&r|ty<9>!' },
+    ],
+    folders: [
+      { id: 'f2', path: 'D:\\Partages\\Compta', inheritance: 'break' },
+      { id: 'f1', path: 'D:\\Partages', inheritance: 'keep' },
+    ],
+  });
+}
+
+test('plan : utilisateurs créés après leur OU, avant les appartenances, avec UPN et mot de passe', () => {
+  const p = sampleFull();
+  assert.deepEqual(A.validateProject(p).errors, []);
+  const steps = A.plan(p);
+  const kinds = steps.map((s) => s.kind);
+  const firstUser = kinds.indexOf('user');
+  assert.ok(firstUser > kinds.lastIndexOf('ou') && firstUser < kinds.indexOf('group'));
+  const jd = steps.find((s) => s.kind === 'user' && s.rowId === 'u1');
+  assert.equal(jd.dn, 'CN=Jean Dupont,OU=Utilisateurs,OU=Paris,DC=lab,DC=local');
+  assert.equal(
+    jd.command,
+    'dsadd user "CN=Jean Dupont,OU=Utilisateurs,OU=Paris,DC=lab,DC=local" -samid jdupont -upn "jdupont@lab.local" -fn Jean -ln Dupont -display "Jean Dupont" -pwd "Bienvenue2026!" -mustchpwd yes -disabled no'
+  );
+  assert.ok(jd.needs.includes(steps.find((s) => s.kind === 'ou' && s.rowId === 'o3').id));
+  const mm = steps.find((s) => s.kind === 'user' && s.rowId === 'u2');
+  assert.match(mm.command, / -pwd "Az&r\|ty<9>!" /);
+  // Membre du GG connu par son DN (pas de recherche dsquery), dépend de la création du compte
+  const member = steps.find((s) => s.kind === 'member' && s.label === 'Ajouter jdupont dans GG_Compta');
+  assert.equal(member.member.lookup, null);
+  assert.equal(member.command, `dsmod group "${steps.find((s) => s.kind === 'group' && s.rowId === 'g1').dn}" -addmbr "${jd.dn}"`);
+  assert.ok(member.needs.includes(jd.id));
+  assert.ok(!A.plan(sampleFull({ mustChangePassword: false })).find((s) => s.kind === 'user').command.includes('-mustchpwd'));
+});
+
+test('validateProject : utilisateurs (identifiant, doublons, mot de passe, conflit avec un groupe)', () => {
+  const p = sampleFull({ defaultPassword: '' });
+  p.users.push(
+    { id: 'u3', login: 'JDUPONT', firstName: '', lastName: 'Autre', ou: '', password: 'Xy12345!' },
+    { id: 'u4', login: 'beaucoup-trop-long-pour-ad', firstName: 'A', lastName: 'B', ou: '', password: 'Xy12345!' },
+    { id: 'u5', login: 'pdurand', firstName: 'Paul', lastName: 'Durand', ou: '', password: '' },
+    { id: 'u6', login: 'lpetit', firstName: 'Léa', lastName: 'Petit', ou: '', password: 'a"b%c' },
+    { id: 'u7', login: 'GG_Compta', firstName: '', lastName: '', ou: '', password: 'Xy12345!' },
+    { id: 'u8', login: 'sfaible', firstName: 'S', lastName: 'F', ou: 'Lyon', password: 'abc' }
+  );
+  const r = A.validateProject(p);
+  const errIds = (field) => find(r.errors, 'users', field).map((e) => e.id);
+  assert.ok(errIds('login').includes('u3')); // doublon de jdupont (casse ignorée)
+  assert.ok(errIds('login').includes('u4')); // > 20 caractères
+  assert.ok(errIds('password').includes('u1')); // ni mot de passe ni mot de passe par défaut
+  assert.ok(errIds('password').includes('u5'));
+  assert.ok(errIds('password').includes('u6')); // " et %
+  assert.ok(has(find(r.errors, 'globals', 'name'), /aussi l'identifiant d'un utilisateur/));
+  assert.ok(find(r.warnings, 'users', 'password').some((w) => w.id === 'u8'));
+  assert.ok(find(r.warnings, 'users', 'ou').some((w) => w.id === 'u8'));
+  // Aucune commande pour les lignes invalides en elles-mêmes (les conflits bloquent l'exécution par la vérification)
+  const logins = A.plan(p).filter((s) => s.kind === 'user').map((s) => s.rowId);
+  for (const id of ['u1', 'u4', 'u5', 'u6']) assert.ok(!logins.includes(id), id);
+});
+
+test('validateProject : mot de passe par défaut contrôlé une fois, utilisateur hors de tout GG signalé', () => {
+  const p = sampleFull({ defaultPassword: 'court' });
+  p.users.push({ id: 'u9', login: 'seul', firstName: '', lastName: '', ou: '', password: '' });
+  const r = A.validateProject(p);
+  assert.equal(find(r.warnings, 'users', 'defaultPassword').length >= 1, true);
+  assert.ok(!find(r.warnings, 'users', 'password').some((w) => /7/.test(w.message)));
+  assert.ok(has(find(r.warnings, 'users', 'login'), /« seul » n'est membre d'aucun groupe global/));
+  assert.ok(has(find(r.errors, 'users', 'defaultPassword'), /espace|casse/) === false);
+  const bad = A.validateProject(sampleFull({ defaultPassword: 'a"b' }));
+  assert.ok(has(find(bad.errors, 'users', 'defaultPassword'), /casse la ligne de commande/));
+});
+
+test('plan : dossiers (parents d\'abord), héritage cassé avant les droits', () => {
+  const steps = A.plan(sampleFull());
+  const folders = steps.filter((s) => s.kind === 'folder');
+  assert.deepEqual(folders.map((s) => s.label), ['Créer le dossier D:\\Partages', 'Créer le dossier D:\\Partages\\Compta']);
+  const inherit = steps.filter((s) => s.kind === 'inherit');
+  assert.equal(inherit.length, 1);
+  assert.equal(inherit[0].command, 'icacls "D:\\Partages\\Compta" /inheritance:d && icacls "D:\\Partages\\Compta" /remove:g *S-1-5-32-545 *S-1-5-11');
+  assert.ok(inherit[0].needs.includes(folders[1].id));
+  const acl = steps.find((s) => s.kind === 'acl');
+  assert.ok(steps.indexOf(acl) > steps.indexOf(inherit[0]));
+  assert.ok(acl.needs.includes(folders[1].id)); // le dossier vient de l'onglet Dossiers, sans l'option
+  const keepUsers = A.plan(sampleFull({ stripUsers: false })).find((s) => s.kind === 'inherit');
+  assert.equal(keepUsers.command, 'icacls "D:\\Partages\\Compta" /inheritance:d');
+  // Script : vérification d'icacls, pas de test d'existence pour l'héritage
+  const bat = A.toBatch(steps, {});
+  assert.ok(bat.includes('where icacls'));
+  assert.ok(bat.includes('icacls "D:\\Partages\\Compta" /inheritance:d && icacls "D:\\Partages\\Compta" /remove:g *S-1-5-32-545 *S-1-5-11\r\n'));
+});
+
+test('validateProject : dossiers (chemin, doublon, dossier sans permission)', () => {
+  const p = sampleFull();
+  p.folders.push({ id: 'f3', path: 'D:\\Partages\\Compta\\', inheritance: 'keep' }, { id: 'f4', path: 'Partages', inheritance: 'keep' }, { id: 'f5', path: 'E:\\Vide', inheritance: 'break' });
+  const r = A.validateProject(p);
+  assert.deepEqual(find(r.errors, 'folders', 'path').map((e) => e.id).sort(), ['f3', 'f4']);
+  assert.ok(has(find(r.warnings, 'folders', 'path'), /« E:\\Vide ».*seuls les administrateurs/));
+  assert.ok(has(find(r.warnings, 'folders', 'path'), /« D:\\Partages » \(onglet Permissions\)\.$/));
+});
+
+test('normalizeInheritance, CSV des dossiers et options par défaut', () => {
+  for (const v of ['Cassé', 'casse', 'BREAK', 'oui', 'x']) assert.equal(A.normalizeInheritance(v), 'break', v);
+  for (const v of ['', 'Conservé', 'hérité', 'non', 'keep', null]) assert.equal(A.normalizeInheritance(v), 'keep', String(v));
+  const csv = A.toCsv([{ path: 'D:\\A', inheritance: 'break' }, { path: 'D:\\B', inheritance: 'keep' }], A.COLUMNS.folders);
+  assert.equal(csv, '\uFEFFDossier;Héritage (Conservé, Cassé)\r\nD:\\A;Cassé\r\nD:\\B;Conservé\r\n');
+  const rows = A.rowsFromTable('folders', A.parseCsv(csv));
+  assert.deepEqual(rows.map((r) => r.inheritance), ['break', 'keep']);
+  const p = A.normalizeProject({ options: { createFolders: 'true' }, folders: [{ path: 'D:\\A', inheritance: 'Cassé' }], users: [{ login: 'a', password: 5 }] });
+  assert.deepEqual(p.options, { createFolders: true, defaultPassword: '', mustChangePassword: true, stripUsers: true });
+  assert.equal(p.folders[0].inheritance, 'break');
+  assert.equal(p.users[0].password, '5');
+});
+
+test('classifyResult : mot de passe refusé par la stratégie, héritage cassé', () => {
+  const r = A.classifyResult({ exitCode: 0x800708c5 | 0, output: 'dsadd a échoué :0x800708c5:', kind: 'user' });
+  assert.equal(r.status, 'error');
+  assert.match(r.message, /stratégie de mot de passe/);
+  assert.equal(A.classifyResult({ exitCode: 0, output: 'ok', kind: 'inherit' }).message, 'Héritage cassé.');
 });

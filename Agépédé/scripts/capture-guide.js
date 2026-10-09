@@ -48,6 +48,11 @@ try {
             if (/"OU=Paris,DC=lab,DC=local" -scope base/.test(line)) return resolve({ exitCode: 0, stdout: '"OU=Paris,DC=lab,DC=local"\r\n', output: '"OU=Paris,DC=lab,DC=local"\r\n' });
             return resolve({ exitCode: 1, stdout: '', output: '' });
           }
+          // Erreur de démonstration : mot de passe refusé par la stratégie du domaine
+          if (/^dsadd user .*-samid cbernard /.test(line)) {
+            const out = 'dsadd a échoué :0x800708c5:Le mot de passe ne répond pas aux spécifications de la stratégie de mot de passe.\r\n';
+            return resolve({ exitCode: 0x800708c5 | 0, stdout: '', output: out });
+          }
           if (/^icacls/.test(line)) return resolve({ exitCode: 0, stdout: 'Fichier traité : D:\\Partages\r\nTraitement réussi de 1 fichiers ; échec du traitement de 0 fichiers\r\n', output: 'Fichier traité : D:\\Partages\r\nTraitement réussi de 1 fichiers ; échec du traitement de 0 fichiers\r\n' });
           if (/^if not exist/.test(line)) return resolve({ exitCode: 0, stdout: '', output: '' });
           const m = /^(dsadd|dsmod) \w+ "([^"]+)"/.exec(line);

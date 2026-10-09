@@ -42,6 +42,27 @@ Si l'OU du groupe est vide, le groupe va dans le conteneur par défaut `CN=Users
 
 Sources : [Dsadd group](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/cc754037(v=ws.11)) · [Use Directory Service to manage AD objects (KB 322684)](https://learn.microsoft.com/en-us/troubleshoot/windows-server/active-directory/directory-service-manage-objects)
 
+## 2 bis. Créer un utilisateur : `dsadd user`
+
+```
+dsadd user <DN de l'utilisateur> [-samid <NomSAM>] [-upn <UPN>] [-fn <Prénom>] [-ln <Nom>] [-display <NomAffiché>] [-pwd {<MotDePasse> | *}] [-mustchpwd {yes | no}] [-disabled {yes | no}] ...
+```
+
+- Le DN est `CN=<Prénom Nom>,<OU>` (l'identifiant si ni prénom ni nom). Si l'OU est vide, le compte va dans `CN=Users,<domaine>`, comme les groupes.
+- `-samid` : nom d'ouverture de session (20 caractères au plus) ; `-upn` : `identifiant@domaine` (nom DNS du projet).
+- `-pwd` : mot de passe de la ligne, sinon le **mot de passe par défaut** du projet. Il est toujours entre guillemets : `& | < > ^ !` y sont des caractères ordinaires (expansion retardée désactivée dans le script et au lancement). `"` et `%` sont refusés.
+- `-mustchpwd yes` si « Changer le mot de passe à la première connexion » est coché ; `-disabled no` : le compte est actif.
+- Le test d'existence porte sur le DN (comme pour les groupes). Si le DN est libre mais que l'identifiant est pris ailleurs (`0x80070524`), l'étape est une **erreur** et les appartenances du compte sont ignorées.
+- Un mot de passe refusé par la stratégie du domaine donne `0x800708C5` (2245, NERR_PasswordTooShort) ou `0x8007052D` (1325, ERROR_PASSWORD_RESTRICTION). Agépédé prévient avant : moins de 7 caractères, moins de 3 catégories (minuscules, majuscules, chiffres, symboles) ou mot de passe contenant l'identifiant (stratégie par défaut d'un domaine).
+
+Commande générée :
+```
+dsadd user "CN=Jean Dupont,OU=Utilisateurs,OU=Paris,DC=lab,DC=local" -samid jdupont -upn "jdupont@lab.local" -fn Jean -ln Dupont -display "Jean Dupont" -pwd "Bienvenue2026!" -mustchpwd yes -disabled no
+```
+Un utilisateur du tableau cité dans les membres d'un GG est ajouté par son DN, sans recherche `dsquery`.
+
+Sources : [Dsadd user](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/cc731279(v=ws.11)) · [Password must meet complexity requirements](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/security-policy-settings/password-must-meet-complexity-requirements)
+
 ## 3. Ajouter un membre : `dsmod group -addmbr`
 
 ```
@@ -139,9 +160,28 @@ Si le nom NetBIOS n'est pas renseigné, Agépédé prend la première étiquette
 
 Les `\` finaux des chemins sont retirés. Pour un programme Windows, `"D:\Dossier\"` se lit avec un guillemet littéral (`\"`). La racine d'un lecteur (`D:\`) est refusée.
 
-Dossier, si l'option est cochée : `if not exist "D:\Partages\Compta" mkdir "D:\Partages\Compta"`.
+Dossier (onglet Dossiers, ou dossier d'une permission si l'option « Créer les dossiers absents » est cochée) : `if not exist "D:\Partages\Compta" mkdir "D:\Partages\Compta"`. Les dossiers de l'onglet Dossiers sont créés parents d'abord.
 
 Source : [icacls](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls)
+
+## 5 bis. Casser l'héritage : `icacls /inheritance:d`
+
+```
+icacls <nom> /inheritance:e|d|r
+icacls <nom> /remove[:g|:d] <sid> [...]
+```
+
+- `/inheritance:d` désactive l'héritage et **recopie** les droits hérités en droits explicites : c'est le bouton « Désactiver l'héritage › Convertir les autorisations héritées » de Windows. `/inheritance:r` les supprimerait tous (administrateurs compris) : Agépédé ne l'utilise pas.
+- Option « retirer Utilisateurs et Utilisateurs authentifiés » (cochée par défaut) : `/remove:g` retire leurs droits accordés, recopiés du dossier parent. Les groupes sont désignés par leur **SID** (`*S-1-5-32-545` Utilisateurs, `*S-1-5-11` Utilisateurs authentifiés), car leur nom change avec la langue du serveur. Restent Administrateurs, Système, Créateur propriétaire et les groupes DL de l'onglet Permissions.
+- L'étape passe **avant** les droits AGDLP (`/grant`), qui s'ajoutent ensuite en droits explicites. Elle peut être rejouée sans effet (héritage déjà désactivé, SID absents).
+
+Commande générée (une étape, deux commandes enchaînées par `&&`) :
+```
+icacls "D:\Partages\Compta" /inheritance:d && icacls "D:\Partages\Compta" /remove:g *S-1-5-32-545 *S-1-5-11
+```
+Il n'y a pas de test d'existence : la simulation l'indique « à appliquer ».
+
+Sources : [icacls](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls) · [Well-known SIDs](https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/understand-security-identifiers)
 
 ## 6. Règles d'imbrication (AGDLP)
 
@@ -193,6 +233,8 @@ Source : [Name computers, domains, sites, and OUs (KB 909264)](https://learn.mic
 | `ou` | `/` et `\` (séparateurs de chemin) | ≤ 64 |
 | `group` | caractères interdits du sAMAccountName, `@` | ≤ 64 (attribut `cn`) ; **avertissement au-delà de 20** (pré-Windows 2000) |
 | `user` | idem | ≤ 20 : un nom d'ouverture de session pré-Windows 2000 ne peut pas être plus long |
+| `person` (prénom, nom) | caractères de « toutes saisies » | ≤ 64 (nom affiché « Prénom Nom » aussi) |
+| mot de passe (`validatePassword`) | `"` `%`, retours ligne, espaces en tête ou en fin | ≤ 127 |
 | `path` | `* ? /`, chemin relatif, racine de lecteur, `.` ou `..` | ≤ 240 |
 | `desc` | `"` `%` `!` | ≤ 1024 |
 
@@ -207,9 +249,9 @@ Pourquoi ces caractères sont interdits dans cmd.exe :
 
 ### Lancement depuis l'application
 ```
-cmd.exe /d /s /c "chcp 65001>nul & <ligne>"
+cmd.exe /d /v:off /s /c "chcp 65001>nul & <ligne>"
 ```
-- `/d` désactive l'AutoRun.
+- `/d` désactive l'AutoRun. `/v:off` désactive l'expansion retardée même si le registre l'active : un `!` (mot de passe) reste littéral.
 - `/s` retire seulement les guillemets externes et laisse le reste tel quel.
 - La ligne est passée avec `windowsVerbatimArguments`.
 - La sortie est lue en UTF-8. Si on y trouve le caractère de remplacement U+FFFD, l'outil a écrit dans la page OEM, et la sortie est décodée en **CP850** (table embarquée, vérifiée contre .NET `Encoding.GetEncoding(850)`).
@@ -242,7 +284,7 @@ Autres règles :
 Sources : [System Error Codes 1300-1699](https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--1300-1699-) · [4000-5999](https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--4000-5999-) · [8200-8999](https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--8200-8999-)
 
 ### Script `.bat` (`toBatch`)
-- `@echo off`, `setlocal`, lecture de la page de code d'origine (`for /f "tokens=2 delims=:." %%c in ('chcp') do set /a AGP_CP=%%c`, 850 par défaut), puis `chcp 65001 >nul` **avant toute ligne accentuée**. Le fichier est enregistré en **UTF-8 sans BOM** : un BOM serait lu comme une commande sur la première ligne.
+- `@echo off`, `setlocal DisableDelayedExpansion` (un `!` reste littéral), lecture de la page de code d'origine (`for /f "tokens=2 delims=:." %%c in ('chcp') do set /a AGP_CP=%%c`, 850 par défaut), puis `chcp 65001 >nul` **avant toute ligne accentuée**. Le fichier est enregistré en **UTF-8 sans BOM** : un BOM serait lu comme une commande sur la première ligne.
 - Le script vérifie que `dsadd` est présent (`where dsadd >nul 2>&1 || (echo … & exit /b 1)`). Il prévient si l'invite n'est pas en administrateur (`net session`).
 - Chaque étape s'affiche sous la forme `echo [n/N] libellé`. Vient ensuite le **test d'existence** : si l'objet existe, l'étape est comptée « déjà faite » et on passe à la suite par `goto :etape_n_fin`. Le script peut donc être relancé.
 - Après chaque commande vient `if %errorlevel% neq 0 (set /a ERR+=1 & echo    ECHEC …)`. Ce test est **hors de tout bloc `( … )`**, donc sans piège d'expansion retardée. `neq 0` attrape aussi les codes **négatifs** (HRESULT), ce que `if errorlevel 1` ne fait pas. Vérifié avec `cmd /c exit -2147019886`.
@@ -268,4 +310,6 @@ Cette machine n'a ni outils AD ni domaine, donc aucune commande `ds*` n'a été 
 - **Le format exact de la sortie de `dsquery`.** Il s'agit de DN entre guillemets, d'après l'usage courant ; la page Microsoft montre seulement que la sortie par défaut est le DN. La forme `"%~u"` fonctionne dans les deux cas.
 - **Le code HRESULT exact d'un `dsmod -addmbr` sur un membre déjà présent.** Ce peut être `0x80070562` ou `0x80071392`, selon la couche qui répond. Les deux sont classés `exists`.
 - **La traduction française des messages** (« dsadd a échoué : … »). Elle ne sert qu'en dernier recours.
+- **`icacls /remove:g` sur un SID absent du dossier.** D'après l'usage, la commande réussit sans rien changer ; non testé ici.
+- **Le code exact d'un mot de passe refusé par `dsadd user`.** `0x800708C5` d'après l'usage ; `0x8007052D` est aussi reconnu.
 - **Le filtre `memberOf` dans `dsquery * -filter`.** La syntaxe LDAP est standard, mais elle n'a pas été testée sur un contrôleur de domaine. Si le test ne trouve rien, la commande est lancée et le résultat « déjà membre » est classé `exists` : il n'y a aucun risque.
