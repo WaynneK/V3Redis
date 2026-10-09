@@ -7,6 +7,7 @@
       content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <title>V3Redis</title>
+    <script src="mode-init.js"></script>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -20,11 +21,13 @@
         <div class="brand">
           <img src="assets/logo.svg" alt="" class="brand-logo" />
           <div>
-            <h1>V3Redis</h1>
+            <h1>V3Redis <span class="light-badge">Light</span></h1>
             <p class="brand-sub" id="app-count">Vos applications</p>
           </div>
         </div>
         <div class="topbar-actions">
+          <!-- Bascule V3Redis complet ↔ V3Redis Light (PC peu puissants) -->
+          <button id="mode-toggle" class="mode-btn" type="button"></button>
           <!-- Mises à jour du paquet (V3Redis + applications) : version, progression, « Installer » -->
           <button id="update-chip" class="update-chip" type="button" aria-haspopup="dialog" aria-controls="update-panel" hidden>
             <span class="uc-icon" aria-hidden="true"></span>
@@ -112,6 +115,7 @@
     <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
 
     <script src="stars.js"></script>
+    <script src="breakout.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

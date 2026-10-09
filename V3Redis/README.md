@@ -1,7 +1,8 @@
 # HUB
 
-Point d'entrée vers les applications : **SysInfo Lite**, **CalkIP**, **PredF** (fusion et conversion de PDF) et **Agépédé** (OU et groupes Active Directory en AGDLP, pour Windows Server). Module annoncé : **Cours**
-(« Bientôt disponible », pas encore d'application : il n'est pas inclus dans l'installeur tant que son état est `soon`).
+Point d'entrée vers les applications : **SysInfo Lite**, **CalkIP**, **PredF** (fusion et conversion de PDF),
+**Agépédé** (OU et groupes Active Directory en AGDLP, pour Windows Server) et **Cours** (résumés de la formation :
+M.Julia et A.Julia).
 
 Ajouter une application plus tard : son projet dans un dossier voisin (ex. `..\PredF`), une entrée dans `apps.js` avec `status: 'soon'` (affichée « Bientôt disponible »), puis `'available'` quand elle est prête. La détection, le lancement et l'installeur la prennent alors en compte sans autre changement.
 
@@ -17,6 +18,20 @@ Ajouter une application plus tard : son projet dans un dossier voisin (ex. `..\P
   4. en cas d'échec, la scène l'indique puis l'interface revient, et V3Redis reste ouvert.
 
   Si l'application était déjà ouverte, sa fenêtre existante passe au premier plan (une seule instance par application).
+- **V3Redis Light** (PC peu puissants) : même application, même paquet et mêmes mises à jour, mais **fenêtre
+  classique** (cadre et barre de titre du système, agrandissable), interface **plate et carrée** (liste des
+  applications à gauche, détails à droite), **aucun effet** : ni ciel étoilé (aucune boucle d'animation), ni 3D, ni
+  flou, ni ombre, ni animation de lancement — l'application démarre et V3Redis disparaît aussitôt.
+  - Bouton **« Mode Light » / « Mode complet »** en haut : la fenêtre se recrée dans l'autre mode, le choix est mémorisé
+    (`settings.json`, clé `mode`).
+  - Raccourci **Menu Démarrer > V3Redis > V3Redis Light** (argument `--light` ; `--full` force le mode complet).
+  - Sans choix enregistré, un PC de **4 Go de mémoire ou moins, ou 2 cœurs ou moins**, s'ouvre en Light d'office
+    (message à l'ouverture). Règles dans `mode.js`, styles en fin de `renderer/styles.css` (`html.light`).
+- **Casse-brique, édition ASCII** (caché, pour passer le temps) : **5 clics rapides** sur le bouton « Actualiser » l'ouvrent
+  par-dessus le HUB (`renderer/breakout.js`). Tout en texte (briques `[===]`, briques solides `[###]`, raquette
+  `<=======>`, balle `o`), niveaux de plus en plus durs, 3 vies, record mémorisé. ← → ou la souris, Espace pour lancer
+  ou mettre en pause, R pour rejouer, Échap pour quitter. Le jeu garde le clavier (Entrée ne lance pas d'application)
+  et se met en pause si la fenêtre perd le focus ; il tourne aussi en V3Redis Light.
 - **Panneau de détails** : description, points forts, emplacement détecté, bouton principal (Lancer / Installer / Télécharger) et actions secondaires (emplacement manuel, détection automatique).
 - Icône, accroche, couleur et points forts de chaque application : `apps.js` (icônes SVG dans `renderer/assets/apps/`).
 
@@ -34,8 +49,9 @@ npm start
 - `npm run build` : **installeur Windows « tout en un »** `dist/V3Redis-Setup-x.y.z.exe` = V3Redis + SysInfo Lite + CalkIP + PredF + Agépédé (`scripts/build-setup.js`) :
   1. compile chaque application disponible dans son projet voisin (`..\SysInfoLite`, `..\CalkIP`, `..\PredF`, `..\Agépédé`, qui doivent avoir leurs `node_modules`) ;
   2. les copie dans `bundle\<id>\` avec un marqueur `hub-bundle.json` (SysInfo Lite désactive alors sa propre mise à jour : elles arrivent avec le HUB) ;
-  3. génère `build\installer.nsh` : raccourcis **Menu Démarrer > V3Redis > SysInfo Lite / CalkIP / PredF / Agépédé** (fichier en UTF-8 avec BOM pour les accents), supprimés à la désinstallation ;
-  4. construit l'installeur ; les applications sont installées dans `<HUB>\resources\apps\<id>\`.
+  3. génère `build\installer.nsh` : page « Applications » (choix des applications), raccourcis **Menu Démarrer > V3Redis > SysInfo Lite / CalkIP / PredF / Agépédé** (fichier en UTF-8 avec BOM pour les accents), supprimés à la désinstallation ;
+  4. construit l'installeur ; les applications sont installées dans `<HUB>\resources\apps\<id>\` ;
+  5. crée un paquet `.zip` par application et leur liste `.json` (installation depuis le HUB, voir plus bas).
 - **Apparence de l'installeur** (design « Hyperespace ») : installeur en français avec page d'accueil et page de fin à
   fond sombre, volet `build/installerSidebar.bmp` (164 × 314) et bandeau `build/installerHeader.bmp` (150 × 57) sur les
   autres pages ; textes et liste des applications générés par `scripts/installer-nsh.js`. Les images se régénèrent
@@ -44,6 +60,31 @@ npm start
 - `npm run build:hub-only` : installeur du HUB seul.
 
 Taille : ~600 Mo avec les quatre applications, car chaque application embarque son propre moteur Electron. Si une application est aussi installée séparément, le HUB lance la plus récente des deux.
+
+## Applications à la carte (Windows)
+
+- **À l'installation** : page **« Applications »** (après l'accueil), une case par application avec sa taille, toutes
+  cochées la première fois. Les applications décochées sont retirées juste après l'extraction (pas de raccourci).
+  V3Redis lui-même est toujours installé.
+- **Choix mémorisé** dans `HKCU\Software\V3Redis\Applications` (`<id>` = `"1"` ou `"0"`) : une réinstallation repart du
+  choix précédent, et les **mises à jour silencieuses le respectent** (une application retirée ne revient pas). Il est
+  effacé par une vraie désinstallation de V3Redis.
+- **Plus tard, dans le HUB** : une application absente propose **« Installer <nom> »** ; une application livrée avec
+  V3Redis propose **« Désinstaller »** (après confirmation ; refusé si elle est ouverte). L'installation télécharge le
+  paquet de l'application **dans la release de la version installée** (`V3Redis-X.Y.Z-app-<id>-win-x64.zip`, liste
+  `V3Redis-X.Y.Z-apps-win-x64.json`) : mêmes fichiers que l'installeur, taille et empreinte SHA-512 vérifiées, puis
+  extraction dans `resources\apps\<id>\`. Le registre et le raccourci du menu Démarrer sont mis à jour comme par
+  l'installeur.
+- **En arrière-plan** : pendant l'installation, le HUB reste utilisable (autres applications, lancement). Une seule
+  **barre de progression** couvre téléchargement puis extraction (taille extraite mesurée en continu ; la liste donne
+  `unpacked`), sur la boîte de l'application (« Installation 42 % ») et dans ses détails (pourcentage, Mo, « Annuler »
+  pendant le téléchargement). À la fin, la détection est refaite : l'application est **prête à lancer sans
+  redémarrer**. Si on lance une autre application ou qu'on ferme la fenêtre, V3Redis termine l'installation caché
+  avant de se fermer ; une fenêtre recréée (passage en mode Light) reprend la barre en cours. Code : `app-manager.js` (HUB), `app-packs.js` (noms, vérifications),
+  `scripts/installer-nsh.js` (page de l'installeur), `scripts/build-setup.js` (création des .zip et de la liste).
+- **Linux et macOS** : le paquet (AppImage, .app signée) est en lecture seule ; toutes les applications y restent.
+- **Tester sans GitHub** : `HUB_BUNDLE_DIR=<dossier vide> V3REDIS_APPS_URL=http://127.0.0.1:<port>/ npm start`, avec un
+  serveur local qui sert la liste et les .zip (le registre et le menu Démarrer ne sont pas modifiés en développement).
 
 ## Mises à jour : un seul paquet
 
@@ -84,7 +125,8 @@ livrées ne cherchent pas de mise à jour de leur côté (SysInfo Lite le détec
 2. GitHub › **Actions** › **Release** › **Run workflow** (`.github/workflows/release.yml`) : paquets Linux et macOS
    déposés dans la release brouillon `v0.13.1`.
 3. Windows (SysInfo Lite n'est disponible que sur le PC) : `npm run build`, puis ajouter à la release
-   `dist\V3Redis-Setup-0.13.1.exe`, son `.blockmap` et `dist\latest.yml`.
+   `dist\V3Redis-Setup-0.13.1.exe`, son `.blockmap`, `dist\latest.yml`, les paquets `dist\V3Redis-0.13.1-app-<id>-win-x64.zip`
+   et leur liste `dist\V3Redis-0.13.1-apps-win-x64.json` (installation d'une application depuis le HUB).
 4. Notes de version (affichées dans V3Redis) puis *Publish release*. Une release en brouillon ou « pre-release »
    n'est pas proposée aux V3Redis installés.
 

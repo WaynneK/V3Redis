@@ -1,0 +1,82 @@
+{
+  "name": "cours",
+  "productName": "Cours",
+  "version": "0.1.0",
+  "description": "Les résumés des cours de la formation, classés par partie (M.Julia, A.Julia), à relire en un clin d'œil.",
+  "main": "main.js",
+  "author": "WaynneK",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node --test",
+    "build": "electron-builder --publish never",
+    "build:win": "electron-builder --win --publish never",
+    "build:linux": "electron-builder --linux --publish never"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.waynnek.cours",
+    "productName": "Cours",
+    "copyright": "© WaynneK",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "icon": "build/icon.png",
+    "files": [
+      "main.js",
+      "preload.js",
+      "preload-splash.js",
+      "lib/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Cours",
+      "artifactName": "Cours-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Cours-Portable-${version}.${ext}"
+    },
+    "mac": {
+      "category": "public.app-category.education",
+      "identity": "-",
+      "hardenedRuntime": false
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Education",
+      "executableName": "cours",
+      "artifactName": "Cours-${version}-x86_64.${ext}"
+    }
+  }
+}

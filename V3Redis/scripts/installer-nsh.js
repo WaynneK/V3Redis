@@ -204,19 +204,92 @@ function styleFunctions(un) {
 }
 
 /**
+ * Page « Applications » : une case par application (cochée par défaut, ou selon le choix précédent lu dans le
+ * registre), puis, après l'extraction, suppression des applications décochées (customInstall). Le choix est
+ * enregistré dans HKCU\<REG_KEY> : les mises à jour silencieuses le respectent, et le HUB le met à jour quand
+ * une application est installée ou désinstallée depuis V3Redis.
+ */
+function appsPage(apps, product, regKey) {
+  const lines = [
+    '  Function v3AppsPage',
+    '    ${if} ${isUpdated}',
+    '      Abort',
+    '    ${endif}',
+    `    !insertmacro MUI_HEADER_TEXT ${nsisString('Applications')} ${nsisString(`Choisissez les applications à installer avec ${product}.`)}`,
+    '    nsDialogs::Create 1018',
+    '    Pop $0',
+    '    ${If} $0 == error',
+    '      Abort',
+    '    ${EndIf}',
+    `    \${NSD_CreateLabel} 0 0 100% 24u ${nsisString(`Décochez celles dont vous n'avez pas besoin. Vous pourrez les installer ou les désinstaller plus tard, à tout moment, depuis ${product}.`)}`,
+    '    Pop $0',
+  ];
+  apps.forEach((a, i) => {
+    const size = a.sizeMb ? ` (${a.sizeMb} Mo)` : '';
+    const label = `${a.name}${a.tagline ? `  —  ${a.tagline}` : ''}${size}`;
+    lines.push(
+      `    \${NSD_CreateCheckbox} 4u ${32 + i * 16}u 100% 13u ${nsisString(label)}`,
+      `    Pop $v3Chk_${a.id}`,
+      `    \${If} $v3App_${a.id} == "1"`,
+      `      \${NSD_Check} $v3Chk_${a.id}`,
+      '    ${EndIf}'
+    );
+  });
+  lines.push(
+    `    \${NSD_CreateLabel} 0 ${36 + apps.length * 16}u 100% 12u ${nsisString(`${product} lui-même est toujours installé.`)}`,
+    '    Pop $0',
+    '    Call v3InnerShow',
+    '    nsDialogs::Show',
+    '  FunctionEnd',
+    '',
+    '  Function v3AppsLeave',
+    ...apps.flatMap((a) => [
+      `    \${NSD_GetState} $v3Chk_${a.id} $0`,
+      '    ${If} $0 == ${BST_CHECKED}',
+      `      StrCpy $v3App_${a.id} "1"`,
+      '    ${Else}',
+      `      StrCpy $v3App_${a.id} "0"`,
+      '    ${EndIf}',
+    ]),
+    '  FunctionEnd',
+    '  Page custom v3AppsPage v3AppsLeave'
+  );
+  return lines;
+}
+
+/**
  * Texte complet de build/installer.nsh (à écrire en UTF-8 AVEC BOM : sans lui, NSIS lirait les accents
  * dans la page de code ANSI).
- * apps : [{ id, name, windows: { exe } }] livrées dans le paquet ; product : « V3Redis ».
+ * apps : [{ id, name, tagline, sizeMb, windows: { exe } }] livrées dans le paquet ; product : « V3Redis » ;
+ * regKey : clé du registre (sous HKCU) qui garde le choix des applications.
  */
-function buildInstallerNsh({ apps, product }) {
+function buildInstallerNsh({ apps, product, regKey = `Software\\${product}\\Applications` }) {
+  for (const a of apps) if (!/^[a-z0-9]+$/.test(a.id)) throw new Error(`Identifiant d'application inutilisable dans NSIS : ${a.id}`);
   const names = frenchList(apps.map((a) => a.name));
   const welcomeText = nsisString(
-    `Cet assistant va installer ${product} \${VERSION} et ses applications : ${names}.\n\nFermez les applications ${product} ouvertes avant de continuer.\n\nCliquez sur Suivant pour continuer.`
+    `Cet assistant va installer ${product} \${VERSION} et les applications de votre choix : ${names}.\n\nFermez les applications ${product} ouvertes avant de continuer.\n\nCliquez sur Suivant pour continuer.`
   ).replace('$${VERSION}', '${VERSION}');
   return [
     // Commentaires en ASCII
     '; Genere par scripts/installer-nsh.js (via scripts/build-setup.js) - ne pas modifier a la main.',
     '; Design « Hyperespace » : voir l\'en-tete de scripts/installer-nsh.js.',
+    '',
+    '; --- Choix des applications : \"1\" a installer, \"0\" a ecarter (variables de l\'installeur seulement) ---',
+    '!ifndef BUILD_UNINSTALLER',
+    ...apps.flatMap((a) => [`  Var v3App_${a.id}`, `  Var v3Chk_${a.id}`]),
+    '!endif',
+    '',
+    '; --- Demarrage de l\'installeur : choix precedent (registre), sinon toutes les applications ---',
+    '!macro customInit',
+    ...apps.flatMap((a) => [
+      `  ReadRegStr $0 HKCU "${regKey}" "${a.id}"`,
+      '  ${If} $0 == "0"',
+      `    StrCpy $v3App_${a.id} "0"`,
+      '  ${Else}',
+      `    StrCpy $v3App_${a.id} "1"`,
+      '  ${EndIf}',
+    ]),
+    '!macroend',
     '',
     '; --- Installation : interface, page d\'accueil ---',
     '!macro customWelcomePage',
@@ -253,8 +326,10 @@ function buildInstallerNsh({ apps, product }) {
     '  StrCpy $isForceCurrentInstall "1"',
     '!macroend',
     '',
-    '; --- Page « dossier » (remplace celle d\'electron-builder) puis style de la page de progression ---',
+    '; --- Page « Applications », page « dossier » (remplace celle d\'electron-builder), style de la progression ---',
     '!macro customPageAfterChangeDir',
+    '  !include nsDialogs.nsh',
+    ...appsPage(apps, product, regKey),
     '  !include StrContains.nsh',
     '  ; meme correction que l\'installeur d\'electron-builder : le dossier choisi se termine par le nom de l\'application',
     '  Function v3InstFilesPre',
@@ -282,7 +357,7 @@ function buildInstallerNsh({ apps, product }) {
     '    ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"',
     '  FunctionEnd',
     `  !define MUI_FINISHPAGE_TITLE ${nsisString(`${product} est installé`)}`,
-    `  !define MUI_FINISHPAGE_TEXT ${nsisString(`${product} et ses applications sont prêts.\n\nLes mises à jour arriveront directement dans ${product}, pour toutes les applications à la fois.`)}`,
+    `  !define MUI_FINISHPAGE_TEXT ${nsisString(`${product} et les applications choisies sont prêts.\n\nLes mises à jour arriveront directement dans ${product}, pour toutes les applications à la fois. Une application peut être ajoutée ou retirée à tout moment depuis ${product}.`)}`,
     '  !define MUI_FINISHPAGE_RUN',
     '  !define MUI_FINISHPAGE_RUN_FUNCTION "StartApp"',
     '  !define MUI_PAGE_CUSTOMFUNCTION_SHOW v3FullPageShow',
@@ -307,15 +382,31 @@ function buildInstallerNsh({ apps, product }) {
     '  !define MUI_PAGE_CUSTOMFUNCTION_SHOW un.v3FullPageShow',
     '!macroend',
     '',
-    `; --- Raccourcis des applications livrees avec ${product} : Menu Demarrer > ${product} > ... ---`,
+    `; --- Applications choisies : raccourci (Menu Demarrer > ${product} > ...) ; ecartees : dossier supprime ---`,
     '!macro customInstall',
     `  CreateDirectory "$SMPROGRAMS\\${product}"`,
-    ...apps.map((a) => `  CreateShortCut "$SMPROGRAMS\\${product}\\${a.name}.lnk" "$INSTDIR\\resources\\apps\\${a.id}\\${a.windows.exe}"`),
+    ...apps.flatMap((a) => [
+      `  \${If} $v3App_${a.id} == "0"`,
+      `    RMDir /r "$INSTDIR\\resources\\apps\\${a.id}"`,
+      `    Delete "$SMPROGRAMS\\${product}\\${a.name}.lnk"`,
+      `    WriteRegStr HKCU "${regKey}" "${a.id}" "0"`,
+      '  ${Else}',
+      `    CreateShortCut "$SMPROGRAMS\\${product}\\${a.name}.lnk" "$INSTDIR\\resources\\apps\\${a.id}\\${a.windows.exe}"`,
+      `    WriteRegStr HKCU "${regKey}" "${a.id}" "1"`,
+      '  ${EndIf}',
+    ]),
+    `  ; ${product} Light : meme programme, fenetre classique sans effets (PC peu puissants)`,
+    `  CreateShortCut "$SMPROGRAMS\\${product}\\${product} Light.lnk" "$INSTDIR\\${product}.exe" "--light" "$INSTDIR\\${product}.exe" 0`,
     '!macroend',
     '',
     '!macro customUnInstall',
     ...apps.map((a) => `  Delete "$SMPROGRAMS\\${product}\\${a.name}.lnk"`),
+    `  Delete "$SMPROGRAMS\\${product}\\${product} Light.lnk"`,
     `  RMDir "$SMPROGRAMS\\${product}"`,
+    '  ; vraie desinstallation (pas une mise a jour) : le choix des applications est oublie',
+    '  ${ifNot} ${isUpdated}',
+    `    DeleteRegKey HKCU "${regKey}"`,
+    '  ${endIf}',
     '!macroend',
     '',
   ].join('\r\n');

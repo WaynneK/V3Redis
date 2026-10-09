@@ -205,6 +205,35 @@ p {
   color: var(--text);
 }
 
+/* Bascule V3Redis ↔ V3Redis Light */
+.mode-btn {
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--muted);
+  font: 600 12.5px var(--font);
+  white-space: nowrap;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: color 200ms, border-color 200ms;
+}
+
+.mode-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.mode-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.light-badge {
+  display: none;
+}
+
 .icon-btn.spin svg {
   animation: spin 700ms var(--ease);
 }
@@ -599,7 +628,7 @@ p {
   stroke-linejoin: round;
 }
 
-.btn.launch svg {
+.btn svg.filled {
   fill: currentColor;
   stroke: none;
 }
@@ -615,6 +644,119 @@ p {
 .secondary-actions .btn {
   padding: 6px 10px;
   font-size: 12px;
+}
+
+/* Installation d'une application depuis le HUB : texte, barre, Annuler */
+.op-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.op-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.op-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.op-pct {
+  color: rgb(var(--accent-rgb));
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.op-text {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Boîte d'une application en cours d'installation : pastille « Installation 42 % » et barre en bas */
+.pill.installing {
+  background: rgba(var(--card-rgb, var(--accent-rgb)), 0.16);
+  color: rgb(var(--card-rgb, var(--accent-rgb)));
+}
+
+.pill.installing::before {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.card-progress {
+  position: absolute;
+  right: 26px;
+  bottom: 12px;
+  left: 26px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.card-progress span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: rgb(var(--card-rgb));
+  transition: width 300ms var(--ease);
+}
+
+html.light .card-face {
+  position: relative;
+}
+
+html.light .card-progress {
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+}
+
+.op-bar {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.op-bar span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: rgb(var(--accent-rgb));
+  transition: width 300ms var(--ease);
+}
+
+/* Étape sans pourcentage (préparation, extraction) : segment qui défile */
+.op-bar.indeterminate span {
+  position: absolute;
+  width: 35%;
+  animation: op-run 1.1s ease-in-out infinite;
+}
+
+@keyframes op-run {
+  from {
+    left: -35%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+html.light .op-bar.indeterminate span {
+  left: 0;
+  width: 100%;
+  opacity: 0.5;
 }
 
 /* ------------------------------------------------------------------ Mises à jour (pastille + panneau) */
@@ -1321,4 +1463,492 @@ body.launch-exit .launch-stage {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* ------------------------------------------------------------------ Casse-brique ASCII (breakout.js) */
+
+.breakout {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  background: rgba(3, 4, 10, 0.82);
+}
+
+.bk-panel {
+  width: min-content; /* largeur de l'aire de jeu : l'aide passe à la ligne */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  padding: 14px 18px 12px;
+  border: 1px solid rgba(var(--accent-rgb), 0.5);
+  border-radius: 4px;
+  background: #06070d;
+  color: #c8cce8;
+  font-family: var(--mono);
+}
+
+.bk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.bk-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  color: #fff;
+  font: 700 16px var(--mono);
+  letter-spacing: 0.3em;
+}
+
+.bk-edition {
+  white-space: nowrap;
+  color: rgb(var(--accent-rgb));
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
+}
+
+.bk-close {
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: #8a8fb5;
+  font: 600 13px var(--mono);
+  cursor: pointer;
+}
+
+.bk-close:hover {
+  color: #fff;
+}
+
+.bk-hud {
+  color: #8a8fb5;
+  font-size: 12px;
+  white-space: pre;
+}
+
+.bk-screen {
+  margin: 0;
+  font: clamp(9px, 2.1vh, 15px) / 1.18 var(--mono);
+  white-space: pre;
+  cursor: none;
+}
+
+.bk-line {
+  height: 1.18em;
+}
+
+.bk-wall {
+  color: #474c74;
+}
+
+.bk-void {
+  color: #24273d;
+}
+
+.bk-b0 {
+  color: #f87171;
+}
+
+.bk-b1 {
+  color: #fb923c;
+}
+
+.bk-b2 {
+  color: #fbbf24;
+}
+
+.bk-b3 {
+  color: #34d399;
+}
+
+.bk-b4 {
+  color: #60a5fa;
+}
+
+.bk-b5 {
+  color: #a78bfa;
+}
+
+.bk-tough {
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.bk-paddle {
+  color: rgb(var(--accent-rgb));
+  font-weight: 700;
+}
+
+.bk-ball {
+  color: #fff;
+  font-weight: 700;
+}
+
+.bk-msg {
+  background: #06070d;
+  color: #fff;
+}
+
+.bk-help {
+  color: #5d628a;
+  font-size: 11px;
+  text-align: center;
+}
+
+/* ==================================================================
+   V3Redis Light (html.light) — PC peu puissants
+   Fenêtre classique (cadre du système), interface plate et carrée : aucun flou, aucune ombre, aucune
+   animation ni transition, pas de ciel étoilé (stars.js ne démarre pas). Liste des applications à gauche,
+   détails à droite.
+   ================================================================== */
+
+html.light {
+  --bg: #16181d;
+  --panel: #1d2027;
+  --panel-strong: #1d2027;
+  --border: #2d313b;
+  --border-strong: #3d4250;
+  --text: #e8eaf0;
+  --muted: #a0a6b4;
+  --faint: #737988;
+  --font: 'Segoe UI', system-ui, -apple-system, 'Ubuntu', 'Cantarell', 'Noto Sans', sans-serif;
+}
+
+html.light *,
+html.light *::before,
+html.light *::after {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  filter: none !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+html.light #stars,
+html.light .nebula,
+html.light .launch-stage,
+html.light .window-controls,
+html.light .topbar-sep,
+html.light .eyebrow,
+html.light .card-check,
+html.light .card-tagline {
+  display: none !important;
+}
+
+html.light body {
+  font-size: 13px;
+}
+
+/* En-tête : simple bandeau (la barre de titre est celle de Windows) */
+html.light .topbar {
+  padding: 10px 14px 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: #1b1e24;
+  -webkit-app-region: no-drag;
+}
+
+html.light .topbar-actions {
+  gap: 6px;
+}
+
+html.light .brand {
+  gap: 10px;
+}
+
+html.light .brand-logo {
+  width: 28px;
+  height: 28px;
+}
+
+html.light .brand h1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+
+html.light .light-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  background: #8b6dff;
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html.light .brand-sub {
+  font-size: 11.5px;
+}
+
+html.light .mode-btn,
+html.light .update-chip {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+}
+
+html.light .icon-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+}
+
+html.light .icon-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+html.light .mode-btn:hover,
+html.light .icon-btn:hover,
+html.light .update-chip:hover {
+  border-color: #565c6c;
+  background: #262a33;
+}
+
+html.light .update-chip.ready {
+  border-color: #8b6dff;
+  background: #8b6dff;
+}
+
+/* Corps : liste à gauche, détails à droite */
+html.light .stage {
+  display: grid;
+  grid-template-columns: minmax(230px, 300px) 1fr;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+}
+
+html.light .cards {
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 0;
+  max-width: none;
+  margin: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: #1a1d23;
+  perspective: none;
+}
+
+html.light .card,
+html.light .card:hover,
+html.light .card:focus-visible {
+  flex: none;
+  width: 100%;
+  height: auto;
+  transform: none;
+}
+
+html.light .card-face {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  grid-template-areas: 'icon name' 'icon pill';
+  column-gap: 12px;
+  row-gap: 3px;
+  align-items: center;
+  height: auto;
+  padding: 10px 14px 10px 13px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  background: transparent;
+  text-align: left;
+  transform: none !important;
+}
+
+html.light .card:hover .card-face,
+html.light .card:focus-visible .card-face {
+  border-color: var(--border);
+  border-left-color: #3d4250;
+  background: #20232a;
+}
+
+html.light .card.active .card-face {
+  border-color: var(--border);
+  border-left-color: rgb(var(--card-rgb));
+  background: #262a33;
+}
+
+html.light .card:focus-visible .card-face {
+  outline: 1px solid var(--border-strong);
+  outline-offset: -1px;
+}
+
+html.light .card-icon,
+html.light .card:hover .card-icon {
+  grid-area: icon;
+  width: 34px;
+  height: 34px;
+  transform: none;
+}
+
+html.light .card-name {
+  grid-area: name;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+html.light .card .pill {
+  grid-area: pill;
+  justify-self: start;
+  margin: 0;
+}
+
+html.light .card.soon .card-face {
+  opacity: 0.6;
+}
+
+/* Pastilles : rectangles plats, point carré */
+html.light .pill {
+  gap: 6px;
+  padding: 1px 7px;
+  font-size: 11px;
+}
+
+html.light .pill::before {
+  width: 6px;
+  height: 6px;
+}
+
+/* Détails */
+html.light .details {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 18px;
+  max-width: none;
+  margin: 0;
+  padding: 22px 26px;
+  overflow-y: auto;
+  border: 0;
+  background: transparent;
+}
+
+html.light .details-main {
+  flex: none; /* les boutons suivent directement le texte */
+}
+
+html.light .details-head h2 {
+  font-size: 19px;
+}
+
+html.light .details-desc {
+  white-space: normal;
+}
+
+html.light .features {
+  display: flex;
+  margin-top: 12px;
+}
+
+html.light .features li {
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--text);
+}
+
+html.light .details-path {
+  white-space: normal;
+  word-break: break-all;
+}
+
+html.light .details-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+html.light .btn {
+  padding: 7px 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  font-size: 12.5px;
+}
+
+html.light .btn:hover:not(:disabled) {
+  border-color: #565c6c;
+  background: #262a33;
+  transform: none;
+}
+
+html.light .btn:active:not(:disabled) {
+  transform: none;
+}
+
+html.light .btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+html.light .btn.launch,
+html.light .btn.launch:hover:not(:disabled) {
+  padding: 9px 18px;
+  border: 1px solid rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb));
+  color: #101216;
+  font-size: 13.5px;
+  transform: none;
+}
+
+html.light .btn.launch:hover:not(:disabled) {
+  border-color: #fff;
+}
+
+html.light .btn.launch::after {
+  display: none;
+}
+
+html.light .secondary-actions {
+  justify-content: flex-start;
+  min-height: 0;
+}
+
+/* Panneau des mises à jour, notifications, info-bulles */
+html.light .update-panel {
+  top: 52px;
+  right: 12px;
+  border: 1px solid var(--border-strong);
+  background: #1d2027;
+}
+
+html.light .up-actions .btn.primary {
+  border-color: #8b6dff;
+  background: #8b6dff;
+  color: #fff;
+}
+
+html.light .up-progress span,
+html.light .uc-bar span {
+  background: #8b6dff;
+}
+
+html.light .toast {
+  bottom: 18px;
+  border: 1px solid var(--border-strong);
+  background: #1d2027;
+}
+
+html.light .tooltip {
+  background: #1d2027;
 }

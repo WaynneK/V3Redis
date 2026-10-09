@@ -32,7 +32,7 @@ test('accueil : couleurs, police et GUIINIT avant la première page, textes fran
     assert.ok(w.indexOf(s) >= 0 && w.indexOf(s) < first, `${s} avant la page d'accueil`);
   }
   assert.match(w, /Bienvenue dans l'installation de V3Redis/);
-  assert.match(w, /installer V3Redis \$\{VERSION\} et ses applications : SysInfo Lite, CalkIP, PredF et Agépédé\.\$\\r\$\\n/);
+  assert.match(w, /installer V3Redis \$\{VERSION\} et les applications de votre choix : SysInfo Lite, CalkIP, PredF et Agépédé\.\$\\r\$\\n/);
   assert.match(w, /skipPageIfUpdated/, 'pas de page d\'accueil lors d\'une mise à jour');
   assert.match(w, /MUI_PAGE_CUSTOMFUNCTION_SHOW v3FullPageShow\r\n  !insertmacro MUI_PAGE_WELCOME/);
   assert.ok(!/\$mui\./.test(nsh), 'aucune variable $mui.* (pas encore déclarées à cet endroit du script)');
@@ -71,6 +71,31 @@ test('pages dossier, progression, fin ; désinstallation ; raccourcis', () => {
   assert.match(nsh, /MUI_INSTFILESPAGE_PROGRESSBAR "smooth colored"/);
   assert.match(nsh, /CreateShortCut "\$SMPROGRAMS\\V3Redis\\Agépédé\.lnk" "\$INSTDIR\\resources\\apps\\agepede\\Agepede\.exe"/);
   assert.ok(!/[^\r]\n/.test(nsh), 'fins de ligne CRLF');
+});
+
+test('page « Applications » : cases, choix précédent (registre), applications écartées supprimées', () => {
+  const d = macro('customPageAfterChangeDir');
+  // La page vient avant la page « dossier », elle est sautée lors d'une mise à jour, stylée comme les autres
+  assert.ok(d.indexOf('Page custom v3AppsPage v3AppsLeave') < d.indexOf('MUI_PAGE_DIRECTORY'));
+  assert.match(d, /Function v3AppsPage\r\n    \$\{if\} \$\{isUpdated\}\r\n      Abort/);
+  assert.match(d, /MUI_HEADER_TEXT "Applications" "Choisissez les applications à installer avec V3Redis\."/);
+  assert.match(d, /Call v3InnerShow\r\n    nsDialogs::Show/);
+  for (const a of apps) {
+    assert.match(d, new RegExp(`NSD_CreateCheckbox\\} [^\\r]*"${a.name}`));
+    assert.match(d, new RegExp(`NSD_GetState\\} \\$v3Chk_${a.id} \\$0`));
+  }
+  // Variables de l'installeur seulement (le désinstalleur ne les connaît pas)
+  assert.match(nsh, /!ifndef BUILD_UNINSTALLER\r\n  Var v3App_sysinfo\r\n  Var v3Chk_sysinfo/);
+  // Démarrage : « 0 » dans le registre = écartée, sinon cochée
+  assert.match(macro('customInit'), /ReadRegStr \$0 HKCU "Software\\V3Redis\\Applications" "calkip"\r\n  \$\{If\} \$0 == "0"\r\n    StrCpy \$v3App_calkip "0"\r\n  \$\{Else\}\r\n    StrCpy \$v3App_calkip "1"/);
+  // Fin de l'installation : écartée → dossier et raccourci supprimés ; choisie → raccourci ; choix mémorisé
+  const i = macro('customInstall');
+  assert.match(i, /\$\{If\} \$v3App_predf == "0"\r\n    RMDir \/r "\$INSTDIR\\resources\\apps\\predf"\r\n    Delete "\$SMPROGRAMS\\V3Redis\\PredF\.lnk"\r\n    WriteRegStr HKCU "Software\\V3Redis\\Applications" "predf" "0"/);
+  assert.match(i, /CreateShortCut "\$SMPROGRAMS\\V3Redis\\PredF\.lnk"[^\r]*\r\n    WriteRegStr HKCU "Software\\V3Redis\\Applications" "predf" "1"/);
+  // Vraie désinstallation : le choix est oublié ; mise à jour : conservé
+  assert.match(macro('customUnInstall'), /\$\{ifNot\} \$\{isUpdated\}\r\n    DeleteRegKey HKCU "Software\\V3Redis\\Applications"/);
+  // Identifiant qui casserait un nom de variable NSIS : refusé
+  assert.throws(() => buildInstallerNsh({ apps: [{ id: 'bad-id', name: 'X', windows: { exe: 'x.exe' } }], product: 'V3Redis' }), /Identifiant/);
 });
 
 test('package.json : installeur français, images Hyperespace, page « dossier » fournie par installer.nsh', () => {

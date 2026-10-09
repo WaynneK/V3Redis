@@ -102,7 +102,7 @@ jobs:
       - name: Dépendances
         if: env.BUILD == 'true'
         run: |
-          for dir in CalkIP PredF Agépédé SysInfoLite V3Redis; do
+          for dir in CalkIP PredF Agépédé Cours SysInfoLite V3Redis; do
             if [ -f "$dir/package.json" ]; then
               echo "::group::npm ci — $dir"
               (cd "$dir" && npm ci --no-audit --no-fund)
@@ -113,7 +113,7 @@ jobs:
       - name: Tests
         if: env.BUILD == 'true' && runner.os == 'Windows'
         run: |
-          for dir in CalkIP PredF Agépédé V3Redis; do
+          for dir in CalkIP PredF Agépédé Cours V3Redis; do
             (cd "$dir" && npm test)
           done
 
@@ -121,3 +121,11 @@ jobs:
         if: env.BUILD == 'true'
         working-directory: V3Redis
         run: node scripts/build-setup.js --publish --skip-missing --arch ${{ matrix.arch }}
+
+      # Windows : paquets .zip des applications et leur liste (installation d'une application depuis le HUB)
+      - name: Paquets des applications dans la release
+        if: env.BUILD == 'true' && runner.os == 'Windows'
+        working-directory: V3Redis
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: gh release upload "v$VERSION" dist/V3Redis-*-app-*-win-x64.zip "dist/V3Redis-$VERSION-apps-win-x64.json" --clobber

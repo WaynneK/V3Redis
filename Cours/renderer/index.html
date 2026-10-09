@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <!-- 100 % local : aucune ressource externe, aucune connexion -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cours</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button type="button" class="brand" id="home-link" title="Toutes les parties (Échap)">
+        <img src="assets/logo.svg" alt="" class="brand-logo" />
+        <span class="brand-text">
+          <strong>Cours</strong>
+          <small>Les résumés de la formation</small>
+        </span>
+      </button>
+
+      <nav class="crumbs" id="crumbs" aria-label="Fil d'Ariane"></nav>
+
+      <label class="search" title="Rechercher dans tous les cours (Ctrl+K)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5" /></svg>
+        <input type="search" id="search" placeholder="Rechercher un chapitre, une notion…" autocomplete="off" spellcheck="false" />
+        <kbd>Ctrl K</kbd>
+      </label>
+
+      <div class="theme" role="radiogroup" aria-label="Thème">
+        <button type="button" role="radio" data-theme="system" title="Thème du système" aria-label="Thème du système">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="12" rx="2" /><path d="M8.5 20h7M12 16.5V20" /></svg>
+        </button>
+        <button type="button" role="radio" data-theme="light" title="Thème clair" aria-label="Thème clair">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" /></svg>
+        </button>
+        <button type="button" role="radio" data-theme="dark" title="Thème sombre" aria-label="Thème sombre">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Les vues sont construites par app.js : accueil (les parties), partie (chapitres + résumé), recherche -->
+    <main class="main" id="main" tabindex="-1"></main>
+
+    <script src="../lib/content.js"></script>
+    <script src="../lib/course.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

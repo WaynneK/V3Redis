@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6ee7b7" />
+      <stop offset="0.55" stop-color="#34d399" />
+      <stop offset="1" stop-color="#0d9488" />
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#g)" />
+  <!-- Livre ouvert -->
+  <path d="M12 26c6-2 13-1.5 20 2.5v22c-7-4-14-4.5-20-2.5z" fill="#fff" opacity="0.92" />
+  <path d="M52 26c-6-2-13-1.5-20 2.5v22c7-4 14-4.5 20-2.5z" fill="#fff" />
+  <path d="M16 32c4-.8 8-.4 12 1.4M16 37c4-.8 8-.4 12 1.4M36 33.4c4-1.8 8-2.2 12-1.4M36 38.4c4-1.8 8-2.2 12-1.4" fill="none" stroke="#0d9488" stroke-width="1.6" stroke-linecap="round" opacity="0.55" />
+  <!-- Toque de diplômé -->
+  <path d="M32 9l15 6-15 6-15-6z" fill="#0f766e" />
+  <path d="M24 18.2v4.3c4.6 2.7 11.4 2.7 16 0v-4.3l-8 3.2z" fill="#115e59" />
+  <path d="M45 15.8v6.5" stroke="#0f766e" stroke-width="1.6" stroke-linecap="round" />
+  <circle cx="45" cy="23.4" r="1.6" fill="#fde68a" />
+</svg>

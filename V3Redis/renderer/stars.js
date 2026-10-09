@@ -10,6 +10,8 @@
 'use strict';
 
 (() => {
+  // V3Redis Light : pas de ciel étoilé (aucune boucle d'animation, aucun calcul)
+  if (document.documentElement.classList.contains('light')) return;
   const canvas = document.getElementById('stars');
   const ctx = canvas.getContext('2d');
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');

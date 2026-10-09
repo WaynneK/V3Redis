@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <!-- 100 % local, comme le reste de Cours : aucune ressource externe, aucune connexion -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Cours</title>
+    <link rel="stylesheet" href="splash.css" />
+  </head>
+  <body>
+    <!-- Écran de démarrage : le logo apparaît, remonte, puis le nom arrive ; la barre suit le chargement réel -->
+    <main class="splash" id="splash">
+      <div class="glow" aria-hidden="true"></div>
+
+      <div class="stage">
+        <img class="logo" src="assets/logo.svg" alt="" width="88" height="88" />
+        <div class="title">
+          <h1><span>Cours</span></h1>
+          <p>Les résumés de la formation</p>
+        </div>
+      </div>
+
+      <div class="status" role="status" aria-live="polite">
+        <div class="bar"><span id="bar"></span></div>
+        <p id="status-text">Démarrage…</p>
+      </div>
+
+      <div class="version" id="version"></div>
+    </main>
+
+    <script src="splash.js"></script>
+  </body>
+</html>

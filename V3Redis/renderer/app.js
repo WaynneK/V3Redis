@@ -13,12 +13,15 @@
   const $ = (id) => document.getElementById(id);
   const track = $('track');
   const STORE_KEY = 'hub.selected';
+  /** V3Redis Light : liste plate, pas d'inclinaison 3D, lancement direct sans animation. */
+  const LIGHT = hub.mode === 'light';
 
   const state = {
     apps: [],
     index: 0,
     cards: [],
     busy: false,
+    op: null, // installation depuis le HUB en cours : { id, phase, received, total }
   };
 
   const SOURCES = {
@@ -53,6 +56,7 @@
     const el = document.createElementNS(ns, 'svg');
     el.setAttribute('viewBox', '0 0 24 24');
     el.setAttribute('aria-hidden', 'true');
+    if (fill) el.classList.add('filled'); // icône pleine (▶ Lancer) ; les autres sont tracées
     for (const d of paths) {
       const p = document.createElementNS(ns, 'path');
       p.setAttribute('d', d);
@@ -68,6 +72,7 @@
     install: ['M12 3v12', 'M7 10l5 5 5-5', 'M5 21h14'],
     folder: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'],
     reset: ['M3 12a9 9 0 1 0 3-6.7', 'M3 4v5h5'],
+    trash: ['M4 7h16', 'M9 7V4h6v3', 'M6 7l1 13h10l1-13'],
   };
 
   let toastTimer = null;
@@ -164,6 +169,7 @@
         select(i);
         launchSelected();
       });
+      if (LIGHT) return card;
       // Inclinaison qui suit la souris (toutes les boîtes)
       card.addEventListener('pointermove', (e) => {
         const r = face.getBoundingClientRect();
@@ -196,7 +202,7 @@
     document.documentElement.style.setProperty('--accent-rgb', hexToRgb(a.accent));
     if (window.Starfield) window.Starfield.setAccent(a.accent);
 
-    renderDetails(a, changed && !quiet);
+    renderDetails(a, changed && !quiet && !LIGHT);
     storage.set(a.id);
   }
 
@@ -230,15 +236,30 @@
     $('d-desc').textContent = a.description;
     $('d-desc').title = a.description; // texte complet si la ligne est coupée (fenêtre étroite)
     $('d-features').replaceChildren(...a.features.map((f) => h('li', null, f)));
-    $('d-path').textContent = a.installed && a.path ? `${SOURCES[a.source] || a.source} — ${a.path}` : a.status === 'soon' ? 'Cette application arrive bientôt dans V3Redis.' : 'Introuvable sur cet ordinateur.';
+    $('d-path').textContent = a.installed && a.path
+      ? `${SOURCES[a.source] || a.source} — ${a.path}`
+      : a.status === 'soon'
+        ? 'Cette application arrive bientôt dans V3Redis.'
+        : a.canAdd
+          ? 'Pas installée : « Installer » l\'ajoute à V3Redis (téléchargement depuis GitHub).'
+          : 'Introuvable sur cet ordinateur.';
     $('d-path').dataset.tip = a.installed && a.path ? a.path : '';
     if (!$('d-path').dataset.tip) delete $('d-path').dataset.tip;
+
+    // Installation depuis le HUB en cours : progression à la place des boutons
+    if (state.op && state.op.id === a.id) {
+      $('d-actions').replaceChildren(progressBlock());
+      updateProgress();
+      return;
+    }
 
     const actions = [];
     if (a.status === 'soon') {
       actions.push(h('button', { class: 'btn launch', type: 'button', disabled: true }, 'Bientôt disponible'));
     } else if (a.installed) {
       actions.push(actionButton(`Lancer ${a.name}`, 'play', 'launch', launchSelected));
+    } else if (a.canAdd) {
+      actions.push(actionButton(`Installer ${a.name}`, 'install', 'launch', () => addApp(a), 'Télécharge l\'application depuis la release GitHub de cette version de V3Redis'));
     } else if (a.canInstall) {
       actions.push(actionButton(`Installer ${a.name}`, 'install', 'launch', () => installApp(a), a.installerName));
     } else if (a.canDownload) {
@@ -257,6 +278,7 @@
           if (res && res.ok) await refresh();
         }, 'Indiquer l\'exécutable de l\'application à la main')
       );
+      if (a.canRemove) secondary.push(actionButton('Désinstaller', 'trash', 'ghost', () => removeApp(a), `Retirer ${a.name} de V3Redis (réinstallable à tout moment)`));
       if (a.source === 'manuel') {
         secondary.push(
           actionButton('Détection auto', 'reset', 'ghost', async () => {
@@ -320,6 +342,7 @@
       return;
     }
     state.busy = true;
+    if (LIGHT) return launchLight(a);
     const stage = $('launch-stage');
     $('tooltip').hidden = true;
     $('toast').classList.remove('show'); // un ancien message ne doit pas recouvrir la scène
@@ -355,6 +378,19 @@
     if (back && back.revived) resetLaunch();
   }
 
+  /** V3Redis Light : lancement immédiat, sans scène ; la fenêtre disparaît dès que l'application démarre. */
+  async function launchLight(a) {
+    toast(`Lancement de ${a.name}…`);
+    const res = await hub.launch(a.id).catch((err) => ({ ok: false, error: err && err.message }));
+    if (!res || !res.ok) {
+      toast((res && res.error) || 'Lancement impossible.');
+      state.busy = false;
+      return;
+    }
+    const back = await hub.retreat(res.launchId);
+    if (back && back.revived) state.busy = false;
+  }
+
   /** Échec : la scène tremble, affiche l'erreur, puis l'interface revient. */
   async function failLaunch(message) {
     const stage = $('launch-stage');
@@ -383,6 +419,120 @@
   }
 
 
+  // ---------------------------------------------------------------------------
+  // Applications du paquet : installer (téléchargement) / désinstaller depuis le HUB
+  // ---------------------------------------------------------------------------
+
+  // L'installation tourne en arrière-plan : on peut parcourir le HUB, lancer une autre application ou fermer la
+  // fenêtre (V3Redis termine alors l'installation caché). Avancement sur la boîte de l'application et dans ses
+  // détails ; à la fin, la détection est refaite toute seule : l'application est prête à lancer.
+
+  const mo = (b) => Math.round((b || 0) / 1048576);
+
+  /** Texte d'avancement : « Téléchargement : 54 / 132 Mo », « Extraction des fichiers »… */
+  function phaseText(op) {
+    switch (op.phase) {
+      case 'download':
+        return op.total ? `Téléchargement : ${mo(op.received)} / ${mo(op.total)} Mo` : 'Téléchargement…';
+      case 'extract':
+        return op.unpacked ? `Extraction des fichiers : ${mo(op.extracted)} / ${mo(op.unpacked)} Mo` : 'Extraction des fichiers…';
+      case 'finish':
+        return 'Finalisation…';
+      case 'done':
+        return 'Installé';
+      default:
+        return 'Préparation…';
+    }
+  }
+
+  function progressBlock() {
+    const cancel = h('button', { class: 'btn ghost', type: 'button', id: 'op-cancel' }, 'Annuler');
+    cancel.addEventListener('click', () => {
+      cancel.disabled = true;
+      hub.cancelAddApp();
+    });
+    return h(
+      'div',
+      { class: 'op-progress', role: 'status', 'aria-live': 'polite' },
+      h('div', { class: 'op-head' }, h('span', { class: 'op-title' }, 'Installation'), h('strong', { class: 'op-pct', id: 'op-pct' })),
+      h('div', { class: 'op-bar' }, h('span', { id: 'op-bar' })),
+      h('div', { class: 'op-text', id: 'op-text' }),
+      cancel
+    );
+  }
+
+  /** Met à jour les deux barres (boîte de l'application, panneau de détails) sans reconstruire l'interface. */
+  function updateProgress() {
+    const op = state.op;
+    if (!op) return;
+    const pct = Math.max(0, Math.min(100, op.percent || 0));
+    const card = $(`card-${op.id}`);
+    if (card) {
+      card.classList.add('installing');
+      const pill = card.querySelector('.pill');
+      if (pill) {
+        pill.className = 'pill installing';
+        pill.textContent = `Installation ${pct} %`;
+      }
+      let bar = card.querySelector('.card-progress span');
+      if (!bar) {
+        card.querySelector('.card-face').append(h('div', { class: 'card-progress', 'aria-hidden': 'true' }, h('span')));
+        bar = card.querySelector('.card-progress span');
+      }
+      bar.style.width = `${pct}%`;
+    }
+    if (!$('op-text')) return;
+    const pill = $('d-status');
+    pill.className = 'pill installing';
+    pill.textContent = 'Installation…';
+    $('op-pct').textContent = `${pct} %`;
+    $('op-text').textContent = phaseText(op);
+    $('op-bar').style.width = `${pct}%`;
+    $('op-bar').parentElement.classList.toggle('indeterminate', op.phase === 'prepare');
+    const cancel = $('op-cancel');
+    if (cancel) cancel.hidden = !['prepare', 'download'].includes(op.phase); // extraction : on va jusqu'au bout
+  }
+
+  /** Fin de l'installation : nouvelle détection (l'application apparaît prête à lancer), message. */
+  async function finishInstall(name, res) {
+    state.op = null;
+    if (res && res.ok) toast(`${name} est installé : prêt à lancer.`);
+    else if (res && res.cancelled) toast('Installation annulée.');
+    else toast((res && res.error) || 'Installation impossible.');
+    await refresh();
+  }
+
+  async function addApp(a) {
+    if (state.op) return toast('Une installation est déjà en cours : attendez qu\'elle se termine.');
+    state.op = { id: a.id, name: a.name, phase: 'prepare', percent: 0, owned: true };
+    renderDetails(a, false);
+    updateProgress();
+    toast(`Installation de ${a.name} en arrière-plan : vous pouvez continuer à utiliser V3Redis.`);
+    const res = await hub.addApp(a.id).catch((err) => ({ ok: false, error: err && err.message }));
+    await finishInstall(a.name, res);
+  }
+
+  async function removeApp(a) {
+    const res = await hub.removeApp(a.id);
+    if (res && res.canceled) return;
+    toast(res && res.ok ? `${a.name} est désinstallé.` : (res && res.error) || 'Désinstallation impossible.');
+    await refresh();
+  }
+
+  function initAppProgress() {
+    if (!hub.onAppProgress) return;
+    hub.onAppProgress((p) => {
+      if (!state.op || p.id !== state.op.id) return;
+      Object.assign(state.op, p);
+      updateProgress();
+      // Installation lancée par une autre fenêtre (avant un passage en mode Light, par exemple) : personne
+      // n'attend sa réponse ici, la fin est repérée par l'avancement
+      if (!state.op.owned && ['done', 'error', 'cancelled'].includes(p.phase)) {
+        finishInstall(state.op.name || p.id, { ok: p.phase === 'done', cancelled: p.phase === 'cancelled', error: p.phase === 'error' ? 'Installation impossible.' : null });
+      }
+    });
+  }
+
   async function installApp(a) {
     const res = await hub.install(a.id);
     toast(res && res.ok ? `Installation de ${a.name} lancée : suivez l'assistant, V3Redis se mettra à jour ensuite.` : (res && res.error) || 'Installation impossible.');
@@ -400,10 +550,14 @@
     }
     const currentId = state.apps[state.index] ? state.apps[state.index].id : storage.get();
     state.apps = apps;
+    // Installation en cours lancée par une fenêtre précédente : on reprend son avancement
+    const running = apps.find((a) => a.installing);
+    if (running && !state.op) state.op = { ...running.installing, id: running.id, name: running.name, owned: false };
     buildCards();
     const ready = apps.filter((a) => a.installed).length;
     $('app-count').textContent = `${apps.length} application${apps.length > 1 ? 's' : ''} · ${ready} prête${ready > 1 ? 's' : ''} à lancer`;
     select(Math.max(0, apps.findIndex((a) => a.id === currentId)), { quiet: true });
+    updateProgress(); // les boîtes viennent d'être reconstruites
   }
 
   // ---------------------------------------------------------------------------
@@ -416,8 +570,23 @@
     $('win-close').addEventListener('click', () => hub.close());
   }
 
+  /** Bouton V3Redis ↔ V3Redis Light : la fenêtre est recréée dans l'autre mode (choix mémorisé). */
+  function initModeToggle() {
+    const btn = $('mode-toggle');
+    btn.textContent = LIGHT ? 'Mode complet' : 'Mode Light';
+    btn.dataset.tip = LIGHT ? 'Revenir à V3Redis complet (effets, ciel étoilé, animations)' : 'V3Redis Light : fenêtre classique, sans effets, pour les PC peu puissants';
+    btn.addEventListener('click', () =>
+      run(btn, async () => {
+        const res = await hub.setMode(LIGHT ? 'full' : 'light');
+        if (!res || !res.ok) toast((res && res.error) || 'Changement de mode impossible.');
+      })
+    );
+    if (hub.autoLight) setTimeout(() => toast('PC peu puissant détecté : V3Redis s\'ouvre en version Light. « Mode complet » en haut pour les effets.'), 600);
+  }
+
   function initInteractions() {
     initWindowControls();
+    initModeToggle();
     document.addEventListener('keydown', (e) => {
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       const onButton = e.target instanceof HTMLButtonElement; // Entrée sur un bouton = son propre clic
@@ -427,16 +596,35 @@
       e.preventDefault();
     });
 
+    // Actualiser. Le bouton reste cliquable pendant la détection (un clic de plus pendant qu'elle tourne est
+    // simplement ignoré) : 5 clics rapides ouvrent le casse-brique ASCII caché (breakout.js).
     const refreshBtn = $('refresh');
-    refreshBtn.addEventListener('click', () =>
-      run(refreshBtn, async () => {
-        refreshBtn.classList.remove('spin');
-        void refreshBtn.offsetWidth;
-        refreshBtn.classList.add('spin');
+    let refreshing = false;
+    const secret = { count: 0, last: 0 };
+    refreshBtn.addEventListener('click', async () => {
+      const now = Date.now();
+      secret.count = now - secret.last < 700 ? secret.count + 1 : 1;
+      secret.last = now;
+      if (secret.count >= 5 && window.Breakout && !state.busy) {
+        secret.count = 0;
+        $('tooltip').hidden = true;
+        window.Breakout.open();
+        return;
+      }
+      if (refreshing) return;
+      refreshing = true;
+      refreshBtn.classList.remove('spin');
+      void refreshBtn.offsetWidth;
+      refreshBtn.classList.add('spin');
+      try {
         await refresh();
-        toast('Détection actualisée.');
-      })
-    );
+        if (!(window.Breakout && window.Breakout.isOpen())) toast('Détection actualisée.');
+      } catch (err) {
+        toast(`Erreur : ${err && err.message ? err.message : err}`);
+      } finally {
+        refreshing = false;
+      }
+    });
 
     // Retour dans la fenêtre (après une installation, par exemple) : nouvelle détection
     let lastFocusRefresh = Date.now();
@@ -639,5 +827,6 @@
   initTooltip();
   initInteractions();
   initUpdates();
+  initAppProgress();
   refresh();
 })();

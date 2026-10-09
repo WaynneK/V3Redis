@@ -1,0 +1,288 @@
+/*
+ * splash.css — Écran de démarrage de Cours (fenêtre transparente sans bordure), aux couleurs de
+ * l'application (vert et turquoise du logo), en thème sombre ou clair selon le réglage de Cours.
+ * Polices système uniquement (100 % local).
+ * Séquence : 0 s logo (zoom + rebond) → 0,8 s le logo remonte et le nom arrive → 1,35 s la progression apparaît.
+ */
+
+:root {
+  --box: #0f1d1c;
+  --box-2: #134e43;
+  --border: rgba(255, 255, 255, 0.1);
+  --text: #e6f4f0;
+  --muted: #9fbdb4;
+  --faint: #6f8f86;
+  --track: rgba(255, 255, 255, 0.1);
+  --violet: #0d9488;
+  --violet-2: #34d399;
+  --cyan: #6ee7b7;
+  --font: 'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system, 'Ubuntu', 'Cantarell', 'Noto Sans', sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --box: #f5faf8;
+    --box-2: #d1f3e6;
+    --border: rgba(16, 90, 70, 0.14);
+    --text: #11221e;
+    --muted: #55706a;
+    --faint: #87a098;
+    --track: rgba(16, 90, 70, 0.1);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* La boîte occupe toute la fenêtre transparente ; elle se déplace en la faisant glisser */
+.splash {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background:
+    radial-gradient(120% 70% at 50% -10%, var(--box-2) 0%, transparent 60%),
+    radial-gradient(80% 50% at 0% 100%, rgba(110, 231, 183, 0.16) 0%, transparent 70%),
+    radial-gradient(80% 50% at 100% 100%, rgba(13, 148, 136, 0.18) 0%, transparent 70%),
+    var(--box);
+  color: var(--text);
+  -webkit-app-region: drag;
+  animation: box-in 260ms ease-out both;
+}
+
+.splash.leaving {
+  animation: box-out 220ms ease-in forwards;
+}
+
+/* Halo derrière le logo */
+.glow {
+  position: absolute;
+  top: 44%;
+  left: 50%;
+  width: 220px;
+  height: 220px;
+  margin: -110px 0 0 -110px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(52, 211, 153, 0.42) 0%, rgba(110, 231, 183, 0.12) 45%, rgba(52, 211, 153, 0) 68%);
+  opacity: 0;
+  animation: glow-in 900ms ease-out 150ms forwards, glow-pulse 2.4s ease-in-out 1.2s infinite;
+}
+
+.stage {
+  position: absolute;
+  inset: 0;
+}
+
+/* 1) Le logo apparaît au centre, 2) puis remonte dans la boîte */
+.logo {
+  position: absolute;
+  top: 44%;
+  left: 50%;
+  width: 88px;
+  height: 88px;
+  margin: -44px 0 0 -44px;
+  filter: drop-shadow(0 12px 24px rgba(52, 211, 153, 0.42));
+  opacity: 0;
+  animation:
+    logo-in 620ms cubic-bezier(0.34, 1.56, 0.64, 1) 120ms forwards,
+    logo-up 560ms cubic-bezier(0.65, 0, 0.35, 1) 820ms forwards;
+}
+
+/* 3) Le nom arrive sous le logo */
+.title {
+  position: absolute;
+  top: 44%;
+  right: 0;
+  left: 0;
+  margin-top: 28px;
+  text-align: center;
+  opacity: 0;
+  animation: title-in 520ms cubic-bezier(0.22, 1, 0.36, 1) 1000ms forwards;
+}
+
+.title h1 {
+  margin: 0;
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.title h1 span {
+  background: linear-gradient(90deg, var(--violet-2), var(--cyan));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.title p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+
+/* 4) Progression du chargement, en bas de la boîte */
+.status {
+  position: absolute;
+  right: 34px;
+  bottom: 44px;
+  left: 34px;
+  opacity: 0;
+  animation: fade-in 400ms ease-out 1350ms forwards;
+}
+
+.bar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--track);
+}
+
+.bar span {
+  display: block;
+  width: 6%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--cyan), var(--violet-2), var(--violet));
+  transition: width 300ms ease;
+}
+
+#status-text {
+  min-height: 18px;
+  margin: 10px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.version {
+  position: absolute;
+  right: 0;
+  bottom: 14px;
+  left: 0;
+  color: var(--faint);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-align: center;
+  opacity: 0;
+  animation: fade-in 400ms ease-out 1350ms forwards;
+}
+
+/* ------------------------------------------------------------ Animations */
+
+@keyframes box-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes box-out {
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes logo-in {
+  from {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Reprend l'état final de logo-in (opacité 1, échelle 1) et ajoute la montée */
+@keyframes logo-up {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-46px) scale(0.86);
+  }
+}
+
+@keyframes title-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes glow-in {
+  to {
+    opacity: 1;
+    transform: translateY(-40px);
+  }
+}
+
+@keyframes glow-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: translateY(-40px) scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: translateY(-40px) scale(1.08);
+  }
+}
+
+@keyframes fade-in {
+  to {
+    opacity: 1;
+  }
+}
+
+/* Animations réduites : on affiche directement l'état final */
+@media (prefers-reduced-motion: reduce) {
+  .splash,
+  .glow,
+  .logo,
+  .title,
+  .status,
+  .version {
+    animation: none !important;
+    opacity: 1;
+  }
+
+  .logo {
+    transform: translateY(-46px) scale(0.86);
+  }
+
+  .glow {
+    transform: translateY(-40px);
+  }
+}

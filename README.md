@@ -9,6 +9,7 @@ on installe V3Redis, et toutes ses applications avec ; elles se mettent à jour 
 | [`CalkIP/`](CalkIP/) | calculatrice IPv4 hors ligne (calculs en binaire pas à pas) |
 | [`PredF/`](PredF/) | fusion et conversion de PDF, assistant IA (Claude ou IA locale gratuite) |
 | [`Agépédé/`](Agépédé/) | OU, groupes globaux et domaine local Active Directory en AGDLP (exécution sous Windows Server) |
+| [`Cours/`](Cours/) | résumés des cours de la formation : M.Julia (IP, Windows Server, Connexion), A.Julia (hardware) |
 
 SysInfo Lite a son propre dépôt ; il est intégré au paquet quand son projet est présent à côté des autres.
 
@@ -32,7 +33,10 @@ macOS : V3Redis affiche la nouvelle version et ouvre sa page de téléchargement
 2. **GitHub** › onglet **Actions** › **Release** › **Run workflow** : les paquets **Linux** et **macOS** sont construits et
    déposés dans une release **brouillon** `vX.Y.Z` (environ 15 min).
 3. **Windows** : sur le PC, `npm run build` dans `V3Redis/` (SysInfo Lite y est inclus), puis ajouter à la release
-   brouillon les 3 fichiers de `V3Redis/dist/` : `V3Redis-Setup-X.Y.Z.exe`, son `.blockmap` et `latest.yml`.
+   brouillon les fichiers de `V3Redis/dist/` listés à la fin du build : `V3Redis-Setup-X.Y.Z.exe`, son `.blockmap`,
+   `latest.yml`, **et** les paquets des applications `V3Redis-X.Y.Z-app-<id>-win-x64.zip` avec leur liste
+   `V3Redis-X.Y.Z-apps-win-x64.json` (sans eux, une application décochée à l'installation ne pourra pas être
+   installée plus tard depuis V3Redis).
    (Avec le secret `SYSINFOLITE_TOKEN`, jeton en lecture sur le dépôt de SysInfo Lite, GitHub construit aussi le
    paquet Windows et cette étape disparaît.)
 4. Vérifier la release, écrire les nouveautés (affichées dans V3Redis) puis **Publish release** — ni « pre-release »,

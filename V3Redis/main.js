@@ -27,6 +27,9 @@ const { fileURLToPath } = require('node:url');
 const APPS = require('./apps.js');
 const Updater = require('./updater.js');
 const Platforms = require('./platforms.js');
+const Mode = require('./mode.js');
+const AppManager = require('./app-manager.js');
+const os = require('node:os');
 
 const IS_WIN = process.platform === 'win32';
 const IS_LINUX = process.platform === 'linux';
@@ -36,7 +39,7 @@ const INDEX_FILE = path.join(__dirname, 'renderer', 'index.html');
 let mainWindow = null;
 
 // ---------------------------------------------------------------------------
-// Préférences : chemins choisis à la main ({ paths: { id: chemin } })
+// Préférences : chemins choisis à la main ({ paths: { id: chemin } }) et mode ('full' | 'light')
 // ---------------------------------------------------------------------------
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
@@ -46,6 +49,7 @@ async function loadSettings() {
   try {
     const parsed = JSON.parse(await fs.readFile(settingsFile(), 'utf8'));
     if (parsed && typeof parsed.paths === 'object' && parsed.paths) settings.paths = parsed.paths;
+    if (parsed && Mode.MODES.includes(parsed.mode)) settings.mode = parsed.mode;
   } catch {
     // premier lancement ou fichier illisible
   }
@@ -227,6 +231,60 @@ const PROJECTS_ROOT = app.isPackaged ? process.env.HUB_PROJECTS_DIR || null : pa
 // En développement, HUB_BUNDLE_DIR permet de pointer vers un dossier « apps » pour tester.
 const BUNDLE_ROOT = app.isPackaged ? path.join(process.resourcesPath, 'apps') : process.env.HUB_BUNDLE_DIR || null;
 
+/** Applications installables / désinstallables depuis le HUB (Windows) : voir app-manager.js. */
+const manager = AppManager.createManager({
+  bundleRoot: BUNDLE_ROOT,
+  product: 'V3Redis',
+  owner: Updater.OWNER,
+  repo: Updater.REPO,
+  version: app.getVersion(),
+  launchable: (file) => isLaunchable(file),
+  relPath: (entry) => Platforms.bundledEntry(entry, process.platform),
+});
+
+/** L'exécutable de l'application tourne-t-il ? (tasklist : sans dépendre de la langue ni des droits) */
+function exeRunning(entry) {
+  const exe = entry.windows && entry.windows.exe;
+  if (!IS_WIN || !exe) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    execFile('tasklist', ['/fo', 'csv', '/nh'], { windowsHide: true, timeout: 10000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+      resolve(!err && Updater.parseTasklist(stdout).has(exe.toLowerCase()));
+    });
+  });
+}
+
+/** Installe depuis le HUB l'application (paquet de la release de cette version), avec progression. */
+async function addApp(id) {
+  const entry = findEntry(id);
+  if (!entry || entry.status !== 'available' || !Platforms.bundledEntry(entry, process.platform)) return { ok: false, error: 'Application inconnue.' };
+  const send = (p) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('apps:progress', { id, ...p });
+  };
+  const res = await manager.install(entry, send);
+  detected.delete(id);
+  return res;
+}
+
+/** Désinstalle l'application livrée avec V3Redis, après confirmation. */
+async function removeApp(id) {
+  const entry = findEntry(id);
+  if (!entry || entry.status !== 'available') return { ok: false, error: 'Application inconnue.' };
+  const answer = await dialog.showMessageBox(mainWindow, {
+    type: 'question',
+    title: `Désinstaller ${entry.name}`,
+    message: `Désinstaller ${entry.name} ?`,
+    detail: `${entry.name} est retiré de V3Redis et de cet ordinateur (menu Démarrer compris). Ses réglages sont conservés.\n\nVous pourrez le réinstaller à tout moment depuis V3Redis.`,
+    buttons: ['Désinstaller', 'Annuler'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  if (answer.response !== 0) return { ok: false, canceled: true };
+  const res = await manager.uninstall(entry, exeRunning);
+  detected.delete(id);
+  return res;
+}
+
 /** « 1.0.1 » plus récent que « 1.0.0 » ; une version inconnue (null) est considérée plus ancienne. */
 function isNewer(a, b) {
   if (!a) return false;
@@ -312,13 +370,21 @@ async function findLocalInstaller(local) {
   return newestInDist(path.join(PROJECTS_ROOT, local.project), local.winInstaller);
 }
 
+/** Dernière détection de chaque application (listApps) : le lancement la réutilise au lieu de tout refaire. */
+const detected = new Map();
+
 /** Catalogue + état de chaque application. */
 async function listApps() {
   return Promise.all(
     APPS.map(async (entry) => {
       const state = entry.status === 'available' ? await detect(entry) : { installed: false };
+      detected.set(entry.id, state);
       // Installation proposée si l'application n'est pas réellement installée (absente ou simple build local)
-      const installer = entry.status === 'available' && (!state.installed || state.source === 'build') ? await findLocalInstaller(entry.local) : null;
+      const notReallyInstalled = !state.installed || state.source === 'build';
+      const installer = entry.status === 'available' && notReallyInstalled ? await findLocalInstaller(entry.local) : null;
+      // Gestion depuis le HUB (Windows) : ajout depuis la release de cette version, retrait du dossier livré
+      const manageable = entry.status === 'available' && manager.supported() && Boolean(Platforms.bundledEntry(entry, process.platform));
+      const inBundle = manageable && (state.source === 'hub' || Boolean(await findBundled(entry)));
       return {
         id: entry.id,
         name: entry.name,
@@ -331,6 +397,10 @@ async function listApps() {
         canDownload: Boolean(entry.downloadUrl),
         canInstall: Boolean(installer),
         installerName: installer ? path.basename(installer) : null,
+        canAdd: manageable && !inBundle && notReallyInstalled,
+        canRemove: inBundle,
+        // Installation en cours (une fenêtre recréée, par exemple en passant en mode Light, reprend la barre)
+        installing: manager.busy() === entry.id ? manager.progress() || { id: entry.id, phase: 'prepare', percent: 0 } : null,
         ...state,
       };
     })
@@ -346,7 +416,10 @@ const findEntry = (id) => APPS.find((a) => a.id === id) || null;
 async function launch(id) {
   const entry = findEntry(id);
   if (!entry || entry.status !== 'available') return { ok: false, error: 'Application inconnue ou pas encore disponible.' };
-  const state = await detect(entry);
+  // Détection déjà faite par l'affichage de la liste (recherche dans le registre : plusieurs secondes) :
+  // réutilisée si le programme est toujours là, sinon refaite
+  const cached = detected.get(id);
+  const state = cached && cached.installed && (await isLaunchable(cached.path)) ? cached : await detect(entry);
   if (!state.installed) return { ok: false, error: `${entry.name} n'est pas installé (ou introuvable).` };
   if (IS_LINUX && state.source !== 'hub') await fs.chmod(state.path, 0o755).catch(() => {}); // AppImage copiée sans droit d'exécution
   // Linux : une application livrée avec le HUB vit dans le système de fichiers monté par l'AppImage du HUB,
@@ -413,7 +486,8 @@ function waitForWindow(pid) {
 async function retreat(launchId) {
   const win = mainWindow;
   if (!win || win.isDestroyed()) return { ok: false };
-  const steps = 30;
+  // Light : pas de fondu, la fenêtre disparaît tout de suite
+  const steps = currentMode.mode === 'light' ? 0 : 30;
   for (let i = 1; i <= steps; i++) {
     const t = i / steps;
     win.setOpacity(1 - t * t * (3 - 2 * t)); // fondu adouci (~0,6 s)
@@ -433,6 +507,8 @@ async function retreat(launchId) {
   // Mise à jour en cours de téléchargement : V3Redis (caché) la termine avant de se fermer (20 min au plus)
   const deadline = Date.now() + 20 * 60 * 1000;
   while (!revived && Updater.getStatus().state === 'downloading' && Date.now() < deadline) await new Promise((r) => setTimeout(r, 1000));
+  // Application en cours d'installation depuis le HUB : terminée (cachée) avant la fermeture
+  while (!revived && manager.busy()) await new Promise((r) => setTimeout(r, 1000));
   if (revived) return { ok: true, revived: true }; // rouvert entre-temps : on reste ouvert
   setTimeout(() => app.quit(), 50); // laisse la réponse IPC partir avant la fermeture
   return { ok: true };
@@ -519,6 +595,10 @@ function registerIpc() {
   handle('apps:list', () => listApps());
   handle('apps:launch', (id) => launch(String(id)));
   handle('apps:install', (id) => install(String(id)));
+  // Applications du paquet V3Redis : ajout (téléchargement) et retrait depuis le HUB
+  handle('apps:add', (id) => addApp(String(id)));
+  handle('apps:cancelAdd', async () => manager.cancel());
+  handle('apps:remove', (id) => removeApp(String(id)));
   handle('hub:retreat', (launchId) => retreat(Number(launchId)));
   // Boutons de la barre de titre (fenêtre sans cadre)
   handle('window:minimize', async () => mainWindow && mainWindow.minimize());
@@ -526,7 +606,8 @@ function registerIpc() {
   handle('apps:choose', (id) => chooseExecutable(String(id)));
   handle('apps:forget', (id) => forgetExecutable(String(id)));
   handle('apps:download', (id) => openDownload(String(id)));
-  handle('hub:info', () => ({ version: app.getVersion(), platform: process.platform }));
+  handle('hub:info', () => ({ version: app.getVersion(), platform: process.platform, mode: currentMode.mode }));
+  handle('hub:setMode', (mode) => setMode(String(mode)));
   // Mises à jour du paquet V3Redis (+ applications livrées)
   handle('update:status', async () => Updater.getStatus());
   handle('update:check', () => Updater.check({ manual: true }));
@@ -550,17 +631,13 @@ function startUpdater() {
 // Fenêtre et cycle de vie
 // ---------------------------------------------------------------------------
 
+/** Mode de cette session : { mode: 'full' | 'light', auto } (voir mode.js). */
+let currentMode = { mode: 'full', auto: false };
+
 function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1120,
-    height: 720,
-    minWidth: 820,
-    minHeight: 600,
-    title: 'V3Redis',
+  const win = new BrowserWindow({
+    ...Mode.windowOptions(currentMode.mode),
     icon: path.join(__dirname, 'renderer', 'assets', 'icon.png'),
-    backgroundColor: '#05060f', // pas de flash blanc avant le premier rendu
-    frame: false, // barre de titre dessinée par l'interface (en-tête déplaçable + boutons réduire / fermer)
-    maximizable: false, // pas de bouton agrandir : le double-clic sur l'en-tête n'agrandit pas non plus
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
@@ -570,19 +647,58 @@ function createWindow() {
       sandbox: true,
       spellcheck: false,
       devTools: !app.isPackaged,
+      // Le mode est connu de la page avant son premier rendu (lu par preload.js)
+      additionalArguments: [`--v3redis-mode=${currentMode.mode}`, ...(currentMode.auto ? ['--v3redis-auto'] : [])],
     },
   });
-  mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
+  mainWindow = win;
+  win.webContents.on('will-navigate', (event) => event.preventDefault());
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.once('ready-to-show', () => {
+    win.show();
     startUpdater();
   });
-  mainWindow.on('closed', () => {
-    mainWindow = null;
+  // Fermeture pendant l'installation d'une application : la fenêtre disparaît, l'installation se termine en
+  // arrière-plan, puis V3Redis se ferme (sauf s'il a été rouvert entre-temps)
+  win.on('close', (event) => {
+    if (!manager.busy() || win !== mainWindow) return;
+    event.preventDefault();
+    revived = false;
+    win.hide();
+    manager.whenIdle().then(() => {
+      if (!revived && !win.isDestroyed() && !win.isVisible()) app.quit();
+    });
   });
-  mainWindow.loadFile(INDEX_FILE);
-  if (process.argv.includes('--dev') && !app.isPackaged) mainWindow.webContents.openDevTools({ mode: 'detach' });
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
+  });
+  win.loadFile(INDEX_FILE);
+  if (process.argv.includes('--dev') && !app.isPackaged) win.webContents.openDevTools({ mode: 'detach' });
+  return win;
+}
+
+/**
+ * Passe de V3Redis complet à V3Redis Light (ou l'inverse) : le choix est enregistré, puis la fenêtre est
+ * recréée (le cadre d'une fenêtre ne peut pas changer une fois créée). La nouvelle s'ouvre au même endroit.
+ */
+async function setMode(mode) {
+  if (!Mode.MODES.includes(mode)) return { ok: false, error: 'Mode inconnu.' };
+  settings.mode = mode;
+  await saveSettings();
+  if (mode === currentMode.mode) return { ok: true, mode };
+  const old = mainWindow;
+  const bounds = old && !old.isDestroyed() ? old.getBounds() : null;
+  currentMode = { mode, auto: false };
+  const win = createWindow();
+  if (bounds) {
+    // Même centre que l'ancienne fenêtre, à la taille par défaut du nouveau mode
+    const o = Mode.windowOptions(mode);
+    win.setBounds({ x: Math.round(bounds.x + (bounds.width - o.width) / 2), y: Math.round(bounds.y + (bounds.height - o.height) / 2), width: o.width, height: o.height });
+  }
+  win.once('ready-to-show', () => {
+    if (old && !old.isDestroyed()) old.destroy();
+  });
+  return { ok: true, mode };
 }
 
 app.enableSandbox();
@@ -590,8 +706,14 @@ app.enableSandbox();
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
     if (!mainWindow) return;
+    // Raccourci « V3Redis Light » (ou --full) alors que V3Redis est ouvert dans l'autre mode : on bascule
+    const wanted = argv.includes('--light') ? 'light' : argv.includes('--full') ? 'full' : null;
+    if (wanted && wanted !== currentMode.mode && mainWindow.isVisible()) {
+      setMode(wanted);
+      return;
+    }
     if (!mainWindow.isVisible()) {
       // Caché après un lancement (téléchargement de mise à jour en cours) : il réapparaît et reste ouvert
       revived = true;
@@ -608,7 +730,9 @@ if (!app.requestSingleInstanceLock()) {
     if (app.isPackaged) Menu.setApplicationMenu(null);
     nativeTheme.themeSource = 'dark'; // interface sombre : barre de titre et boîtes de dialogue assorties
     await loadSettings();
+    currentMode = Mode.resolveMode({ argv: process.argv, saved: settings.mode, totalMem: os.totalmem(), cpus: os.cpus().length });
     registerIpc();
+    manager.cleanup(); // restes d'une installation interrompue
     createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

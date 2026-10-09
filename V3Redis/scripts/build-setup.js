@@ -13,6 +13,8 @@
  *      marqueur hub-bundle.json (SysInfo Lite ne lance alors pas sa propre mise à jour).
  *   3. Windows : écrit build/installer.nsh (pages, apparence « Hyperespace », raccourcis du menu Démarrer).
  *   4. Construit le paquet du HUB ; bundle/ y est copié dans resources/apps/.
+ *   5. Windows : un .zip par application + leur liste (V3Redis-x.y.z-apps-win-x64.json), à joindre à la release :
+ *      le HUB les télécharge pour installer une application écartée à l'installation (app-packs.js).
  *
  * Projet d'une application introuvable : reprise de la version déjà assemblée dans bundle/<id>/ si elle existe ;
  * sinon erreur, ou, avec --skip-missing (GitHub Actions), paquet construit sans cette application.
@@ -26,8 +28,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const crypto = require('node:crypto');
 const APPS = require('../apps.js');
 const Platforms = require('../platforms.js');
+const Packs = require('../app-packs.js');
 const { buildInstallerNsh } = require('./installer-nsh.js');
 
 const HUB = path.resolve(__dirname, '..');
@@ -145,7 +149,9 @@ if (PLATFORM === 'win32') {
   step('Pages et raccourcis de l\'installeur');
   fs.mkdirSync(path.join(HUB, 'build'), { recursive: true });
   // BOM UTF-8 : sans lui, NSIS lit le fichier dans la page de code ANSI et les accents seraient déformés
-  fs.writeFileSync(path.join(HUB, 'build', 'installer.nsh'), '﻿' + buildInstallerNsh({ apps: bundled, product }));
+  // Page « Applications » : nom, accroche et place occupée par chaque application
+  const pageApps = bundled.map((a) => ({ ...a, sizeMb: Math.round(du(path.join(BUNDLE, a.id)) / 1048576) }));
+  fs.writeFileSync(path.join(HUB, 'build', 'installer.nsh'), '﻿' + buildInstallerNsh({ apps: pageApps, product, regKey: Packs.REG_KEY }));
   for (const img of ['installerSidebar.bmp', 'installerHeader.bmp']) {
     if (!fs.existsSync(path.join(HUB, 'build', img))) throw new Error(`build/${img} absent : lancez « npm run installer:art ».`);
   }
@@ -157,8 +163,36 @@ step(`Construction du paquet de ${product} — ${PLATFORM} ${ARCH}`);
 electronBuilder(HUB, [...Platforms.hubBuildArgs(PLATFORM, ARCH), '--publish', publish ? 'always' : 'never']);
 
 const dist = path.join(HUB, 'dist');
+
+// 5) Windows : un paquet .zip par application (son dossier resources/apps/<id>) et leur liste, à joindre à la
+//    release : le HUB s'en sert pour installer plus tard une application écartée à l'installation (app-packs.js)
+const packFiles = [];
+if (PLATFORM === 'win32' && bundled.length) {
+  step('Paquets des applications (installation depuis le HUB)');
+  const tar = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe');
+  if (!fs.existsSync(tar)) throw new Error('tar.exe introuvable (Windows 10 1803 ou plus récent requis pour créer les paquets .zip).');
+  const manifest = { hub: pkg.version, createdAt: new Date().toISOString(), apps: [] };
+  for (const a of bundled) {
+    const file = Packs.packFileName(product, pkg.version, a.id);
+    const out = path.join(dist, file);
+    fs.rmSync(out, { force: true });
+    const res = spawnSync(tar, ['-a', '-c', '-f', out, '-C', path.join(BUNDLE, a.id), '.'], { stdio: 'inherit' });
+    if (res.status !== 0 || !fs.existsSync(out)) throw new Error(`Paquet de ${a.name} impossible à créer (tar, code ${res.status}).`);
+    const { version } = JSON.parse(fs.readFileSync(path.join(BUNDLE, a.id, 'hub-bundle.json'), 'utf8'));
+    const size = fs.statSync(out).size;
+    // unpacked : taille une fois extrait (barre de progression de l'extraction dans le HUB)
+    manifest.apps.push({ id: a.id, name: a.name, version, file, size, sha512: sha512(out), unpacked: du(path.join(BUNDLE, a.id)) });
+    packFiles.push(file);
+    console.log(`  • ${file} (${Packs.mo(size)})`);
+  }
+  const manifestFile = Packs.manifestFileName(product, pkg.version);
+  fs.writeFileSync(path.join(dist, manifestFile), JSON.stringify(manifest, null, 2));
+  packFiles.push(manifestFile);
+  console.log(`  • ${manifestFile}`);
+}
+
 const outputs = {
-  win32: [`${product}-Setup-${pkg.version}.exe`, `${product}-Setup-${pkg.version}.exe.blockmap`, 'latest.yml'],
+  win32: [`${product}-Setup-${pkg.version}.exe`, `${product}-Setup-${pkg.version}.exe.blockmap`, 'latest.yml', ...packFiles],
   linux: [`${product}-${pkg.version}-x86_64.AppImage`, 'latest-linux.yml'],
   darwin: [`${product}-${pkg.version}-${ARCH}.dmg`],
 }[PLATFORM].map((f) => path.join(dist, f));
@@ -171,6 +205,20 @@ if (fs.existsSync(main)) {
   else console.log(`Mise à jour : joindre ${outputs.map((f) => path.basename(f)).join(', ')} à la release GitHub « v${pkg.version} » de WaynneK/V3Redis.`);
 }
 if (skipped.size) console.warn(`Paquet construit sans : ${[...skipped].join(', ')} (projet introuvable).`);
+
+/** Empreinte SHA-512 en base64 (même forme que celle vérifiée par le HUB). */
+function sha512(file) {
+  const hash = crypto.createHash('sha512');
+  const fd = fs.openSync(file, 'r');
+  const buf = Buffer.alloc(4 * 1024 * 1024);
+  try {
+    let n;
+    while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) hash.update(buf.subarray(0, n));
+  } finally {
+    fs.closeSync(fd);
+  }
+  return hash.digest('base64');
+}
 
 function du(dir) {
   let total = 0;

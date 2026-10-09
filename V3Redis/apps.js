@@ -144,16 +144,35 @@ module.exports = [
     },
   },
   {
-    // Module annoncé : pas encore d'application. Pour le rendre disponible : status 'available', puis les
-    // champs windows / linux / local (même forme que les autres) et son projet voisin ..\Cours
+    // Application prête (projet ..\Cours) mais pas encore ouverte : « Bientôt disponible », absente de
+    // l'installeur. Passer à 'available' quand les résumés seront écrits.
     id: 'cours',
     name: 'Cours',
     tagline: 'Les résumés de la formation',
-    description: 'Les résumés des cours de la formation, classés par module, à relire en un clin d\'œil.',
+    description: 'Les résumés des cours de la formation : M.Julia (IP, Windows Server) et A.Julia (hardware).',
     icon: 'cours.svg',
     accent: '#34d399',
-    features: ['Résumés par module', 'Points clés', 'Révision rapide'],
+    features: ['M.Julia · A.Julia', 'Points clés', 'Recherche', 'Révision rapide'],
     status: 'soon',
     downloadUrl: null,
+    windows: {
+      displayName: 'Cours',
+      exe: 'Cours.exe',
+      defaultDir: ['LOCALAPPDATA', 'Programs', 'Cours'],
+    },
+    linux: {
+      appImagePrefix: 'Cours-',
+      bin: 'cours',
+    },
+    mac: {
+      app: 'Cours.app',
+    },
+    local: {
+      project: 'Cours',
+      winExe: ['dist/win-unpacked/Cours.exe'],
+      winPortable: /^Cours-Portable-[\d.]+\.exe$/,
+      winInstaller: /^Cours-Setup-[\d.]+\.exe$/,
+      appImage: /^Cours-[\d.]+-x86_64\.AppImage$/,
+    },
   },
 ];
