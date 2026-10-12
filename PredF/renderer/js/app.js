@@ -155,6 +155,11 @@ function initDrop() {
     e.preventDefault();
     depth = 0;
     document.body.classList.remove('drop-active');
+    // Traitement en cours : le document ne doit pas changer sous l'outil qui travaille dessus
+    if (isBusy()) {
+      toast('Un traitement est en cours : attendez qu\'il se termine pour ouvrir d\'autres fichiers.', 'error');
+      return;
+    }
     const paths = [...e.dataTransfer.files].map((f) => api.pathOf(f)).filter(Boolean);
     if (!paths.length) {
       toast('Ces éléments ne sont pas des fichiers de l\'ordinateur : glissez-les depuis l\'Explorateur.', 'error');
@@ -166,7 +171,14 @@ function initDrop() {
   });
 }
 
+const isBusy = () => !$('busy').hidden;
+
 async function openPending(fromLaunch) {
+  // « Ouvrir avec » pendant un traitement : les fichiers restent en file dans le processus principal
+  if (isBusy()) {
+    setTimeout(() => openPending(fromLaunch), 500);
+    return;
+  }
   const res = await api.pendingOpen();
   if (res && res.ok && res.files.length) deliver(res.files, { fromLaunch });
 }
@@ -203,7 +215,7 @@ async function initTheme() {
 
 function initKeys() {
   document.addEventListener('keydown', async (e) => {
-    if (!$('busy').hidden) return; // traitement en cours
+    if (isBusy()) return; // traitement en cours
     const ctrl = (e.ctrlKey || e.metaKey) && !e.altKey;
     if (ctrl && /^[1-8]$/.test(e.key)) {
       e.preventDefault();

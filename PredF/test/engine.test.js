@@ -6,7 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const zlib = require('node:zlib');
-const { PDFDocument, StandardFonts, degrees } = require('pdf-lib');
+const { PDFDocument, PDFName, PDFDict, PDFArray, PDFString, StandardFonts, degrees } = require('pdf-lib');
 const E = require('../lib/engine.js');
 const R = require('../lib/ranges.js');
 
@@ -109,6 +109,13 @@ describe('saisie des pages', () => {
     assert.deepEqual(R.chunk(7, 3), [[0, 1, 2], [3, 4, 5], [6]]);
     assert.deepEqual(R.chunk(2, 5), [[0, 1]]);
     assert.throws(() => R.chunk(5, 0), R.RangeError);
+    assert.throws(() => R.chunk(5, NaN), R.RangeError); // champ « toutes les N pages » vidé
+  });
+
+  it('refuse un groupe sans page (fichier vide)', () => {
+    assert.throws(() => R.parseGroups('1, paires', 1), /paires/);
+    assert.deepEqual(R.parseGroups('1, impaires', 1), [[0], [0]]);
+    assert.deepEqual(R.parseGroups('paires, impaires', 3), [[1], [0, 2]]);
   });
 
   it('résume une liste', () => {
@@ -129,6 +136,24 @@ describe('fichiers et images', () => {
     assert.equal(E.detectType(makeJpegHeader(4, 3, 1)), 'jpg');
     assert.equal(E.detectType(new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])), 'gif');
     assert.equal(E.detectType(new Uint8Array([1, 2, 3, 4, 5])), null);
+  });
+
+  it('une image dont les métadonnées contiennent « %PDF- » reste une image', async () => {
+    // JPEG avec un commentaire (segment COM) « %PDF-1.7 », PNG avec un bloc tEXt du même genre
+    const jpg = new Uint8Array([0xff, 0xd8, 0xff, 0xfe, 0x00, 0x10, ...Buffer.from('voir %PDF-1.7 ok', 'latin1'), 0xff, 0xd9]);
+    assert.equal(E.detectType(jpg), 'jpg');
+    const png = makePng(2, 2);
+    const text = Buffer.from('\0\0\0\x0ftEXtComment\0%PDF-', 'latin1');
+    const withText = new Uint8Array(Buffer.concat([Buffer.from(png.subarray(0, 33)), text, Buffer.alloc(4), Buffer.from(png.subarray(33))]));
+    assert.equal(E.detectType(withText), 'png');
+    // BMP : signature « BM » et en-tête DIB de 40 octets
+    const bmp = new Uint8Array(54);
+    bmp.set([0x42, 0x4d]);
+    bmp[14] = 40;
+    assert.equal(E.detectType(bmp), 'bmp');
+    // PDF précédé d'octets parasites (même commençant par « BM ») : toujours un PDF
+    const pdf = await makePdf(1);
+    assert.equal(E.detectType(new Uint8Array([0x42, 0x4d, 0x0a, ...pdf.subarray(0, 64)])), 'pdf');
   });
 
   it('dimensions et orientation EXIF', () => {
@@ -252,6 +277,62 @@ describe('buildPdf', () => {
     assert.ok(size(3).width < size(3).height, 'auto : portrait pour une photo tournée');
   });
 
+  it('orientation imposée : vaut pour la page affichée, rotation de l\'image comprise', async () => {
+    const png = makePng(300, 200); // paysage
+    const jpg = makeJpegHeader(400, 300, 6); // affichée portrait (EXIF)
+    const src = sourcesOf({ p: { kind: 'image', bytes: png }, j: { kind: 'image', bytes: jpg } });
+    const cases = [
+      // [image, rotation demandée, orientation, page affichée attendue]
+      ['p', 0, 'portrait', 'portrait'],
+      ['p', 90, 'portrait', 'portrait'],
+      ['p', 270, 'portrait', 'portrait'],
+      ['p', 90, 'landscape', 'paysage'],
+      ['p', 180, 'landscape', 'paysage'],
+      ['p', 0, 'auto', 'paysage'],
+      ['p', 90, 'auto', 'portrait'], // photo paysage tournée : portrait
+      ['j', 0, 'auto', 'portrait'],
+      ['j', 90, 'auto', 'paysage'],
+      ['j', 270, 'portrait', 'portrait'],
+    ];
+    const out = await E.buildPdf(
+      cases.map(([s, rotate, orientation]) => ({ type: 'image', src: s, rotate, layout: { size: 'A4', orientation, margin: 10 } })),
+      src
+    );
+    const info = await E.inspect(out);
+    const doc = await PDFDocument.load(out);
+    cases.forEach(([s, rotate, orientation, expected], i) => {
+      const { width, height } = info.pages[i];
+      assert.equal(E.describeSize(width, height), `A4 ${expected}`, `${s} pivotée de ${rotate}°, ${orientation}`);
+      assert.equal(doc.getPage(i).getRotation().angle, rotate);
+    });
+    // Image paysage pivotée sur une page portrait : la page est dessinée en paysage (l'image la remplit) puis pivotée
+    const raw = doc.getPage(1).getSize();
+    assert.ok(raw.width > raw.height);
+  });
+
+  it('page blanche : taille affichée de la page précédente (rotation comprise)', async () => {
+    const a = await makePdf(1, { rotate: 90 }); // 400 × 600 pivotée : affichée 600 × 400
+    const png = makePng(300, 200);
+    const out = await E.buildPdf(
+      [
+        { type: 'page', src: 'a', index: 0 },
+        { type: 'blank' },
+        { type: 'blank', rotate: 90 },
+        { type: 'image', src: 'p', rotate: 90, layout: { size: 'A4', orientation: 'portrait' } },
+        { type: 'blank' },
+        { type: 'image', src: 'p', rotate: 90, layout: { size: 'fit' } },
+        { type: 'blank' },
+      ],
+      sourcesOf({ a: { kind: 'pdf', bytes: a }, p: { kind: 'image', bytes: png } })
+    );
+    const pages = (await E.inspect(out)).pages.map((p) => [Math.round(p.width), Math.round(p.height)]);
+    assert.deepEqual(pages[1], [600, 400], 'comme la page pivotée affichée');
+    assert.deepEqual(pages[2], [400, 600], 'pivotée elle-même d\'un quart de tour');
+    assert.deepEqual(pages[4], [595, 842], 'comme l\'image pivotée (A4 portrait)');
+    assert.deepEqual(pages[6], pages[5], 'comme l\'image « taille de l\'image » pivotée');
+    assert.ok(pages[5][0] < pages[5][1]);
+  });
+
   it('signale la progression', async () => {
     const a = await makePdf(45);
     const calls = [];
@@ -286,6 +367,46 @@ describe('pages en images et optimisation', () => {
     const out = await E.optimizePdf(a);
     assert.deepEqual(await widths(out), [400, 401, 402, 403]);
     assert.equal((await PDFDocument.load(out)).getTitle(), 'Doc');
+  });
+
+  it('réécrit sans perte : signets, formulaire, numérotation et métadonnées gardés, orphelins retirés', async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const p1 = doc.addPage([300, 300]);
+    doc.addPage([300, 300]);
+    p1.drawText('Formulaire', { x: 20, y: 250, size: 14, font });
+    doc.setTitle('Avec signets');
+    doc.setAuthor('Moi');
+    // Champ de formulaire rempli
+    const field = doc.getForm().createTextField('nom');
+    field.setText('Dupont');
+    field.addToPage(p1, { x: 20, y: 150, width: 200, height: 24 });
+    // Signet « Chapitre 1 » vers la page 2
+    const ctx = doc.context;
+    const outlinesRef = ctx.nextRef();
+    const itemRef = ctx.register(ctx.obj({ Title: PDFString.of('Chapitre 1'), Parent: outlinesRef, Dest: [doc.getPage(1).ref, 'Fit'] }));
+    ctx.assign(outlinesRef, ctx.obj({ Type: 'Outlines', First: itemRef, Last: itemRef, Count: 1 }));
+    doc.catalog.set(PDFName.of('Outlines'), outlinesRef);
+    // Numérotation des pages (i, ii…) et objet orphelin (rien ne le référence)
+    doc.catalog.set(PDFName.of('PageLabels'), ctx.obj({ Nums: [0, { S: 'r' }] }));
+    const orphan = ctx.register(ctx.obj({ Orphelin: true }));
+    const bytes = await doc.save();
+    assert.ok((await PDFDocument.load(bytes)).context.lookup(orphan), 'orphelin présent avant');
+
+    const out = await E.optimizePdf(bytes);
+    const res = await PDFDocument.load(out, { updateMetadata: false });
+    assert.equal(res.getPageCount(), 2);
+    assert.equal(res.getTitle(), 'Avec signets');
+    assert.equal(res.getAuthor(), 'Moi');
+    assert.equal(res.getProducer(), 'PredF (pdf-lib)');
+    assert.equal(res.getForm().getTextField('nom').getText(), 'Dupont');
+    const outlines = res.catalog.lookup(PDFName.of('Outlines'), PDFDict);
+    const first = outlines.lookup(PDFName.of('First'), PDFDict);
+    assert.equal(first.lookup(PDFName.of('Title')).decodeText(), 'Chapitre 1');
+    // La destination pointe toujours vers la 2e page du document réécrit
+    assert.equal(first.lookup(PDFName.of('Dest'), PDFArray).get(0).toString(), res.getPage(1).ref.toString());
+    assert.ok(res.catalog.lookup(PDFName.of('PageLabels'), PDFDict));
+    assert.equal(res.context.lookup(orphan), undefined, 'objet orphelin retiré');
   });
 });
 

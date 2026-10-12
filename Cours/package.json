@@ -2,7 +2,7 @@
   "name": "cours",
   "productName": "Cours",
   "version": "0.1.0",
-  "description": "Les résumés des cours de la formation, classés par partie (M.Julia, A.Julia), à relire en un clin d'œil.",
+  "description": "Les résumés des cours de la formation en PDF, classés par partie (M.Julia, A.Julia, Microsoft Office) : aperçu, visionneuse et téléchargement.",
   "main": "main.js",
   "author": "WaynneK",
   "license": "MIT",
@@ -35,6 +35,9 @@
       "preload-splash.js",
       "lib/**/*",
       "renderer/**/*",
+      "pdfs/**/*",
+      "node_modules/pdfjs-dist/build/pdf.min.js",
+      "node_modules/pdfjs-dist/build/pdf.worker.min.js",
       "package.json"
     ],
     "win": {
@@ -77,6 +80,12 @@
       "category": "Education",
       "executableName": "cours",
       "artifactName": "Cours-${version}-x86_64.${ext}"
-    }
+    },
+    "asarUnpack": [
+      "pdfs/**"
+    ]
+  },
+  "dependencies": {
+    "pdfjs-dist": "3.11.174"
   }
 }

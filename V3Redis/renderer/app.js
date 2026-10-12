@@ -1,8 +1,9 @@
 /*
  * app.js — Interface du HUB : sélecteur 3D des applications, détails et actions.
  *
- * Sélecteur : clic sur une carte, glisser, molette, flèches ← →, Début / Fin, touches 1–9 ;
- * Entrée ou double-clic lance l'application choisie. La carte active s'incline sous la souris
+ * Sélecteur : clic sur une carte, flèches ← →, Début / Fin, touches 1–9 ;
+ * Entrée ou double-clic lance l'application choisie. Les modules (apps.js : placement 'module', ex. SysInfo Lite)
+ * sont en haut, dans la barre de titre : clic pour les choisir, double-clic pour les lancer. La carte active s'incline sous la souris
  * et sa couleur teinte la nébuleuse et les étoiles du fond (stars.js).
  * Le DOM est construit sans innerHTML.
  */
@@ -30,6 +31,7 @@
     recherche: 'Trouvé dans vos dossiers',
     manuel: 'Emplacement choisi à la main',
     build: 'Version compilée dans le dossier du projet (non installée)',
+    source: 'Code source du projet (mode dev : dernières modifications à chaque lancement)',
     hub: 'Livré avec V3Redis',
   };
 
@@ -110,6 +112,8 @@
   function statusOf(a) {
     const v = a.version ? ` · v${a.version}` : '';
     if (a.status === 'soon') return { text: 'Bientôt disponible', level: '' };
+    if (a.preview) return { text: a.installed ? `Aperçu dev${v}` : 'Aperçu dev · introuvable', level: a.installed ? 'ready' : 'missing' };
+    if (a.installed && a.source === 'source') return { text: `Dev · source${v}`, level: 'ready' };
     if (a.installed && a.source === 'build') return { text: `Prêt à lancer${v}`, level: 'ready' };
     if (a.installed) return { text: `Installé${v}`, level: 'ok' };
     return { text: 'Non installé', level: 'missing' };
@@ -145,8 +149,31 @@
   // Sélecteur
   // ---------------------------------------------------------------------------
 
+  /** Module (application placée en haut, apps.js : placement 'module') : icône, nom, point d'état. */
+  function moduleButton(a, i) {
+    const st = statusOf(a);
+    const btn = h(
+      'button',
+      { class: `module${a.status === 'soon' ? ' soon' : ''}`, type: 'button', id: `card-${a.id}`, 'aria-label': `${a.name} — ${st.text}`, 'data-tip': `${a.name} · ${st.text} — double-clic pour lancer` },
+      a.icon ? h('img', { class: 'module-icon', src: `assets/apps/${a.icon}`, alt: '', draggable: 'false' }) : null,
+      h('span', { class: 'module-name' }, a.name),
+      h('span', { class: `module-dot ${st.level}`, 'aria-hidden': 'true' })
+    );
+    btn.style.setProperty('--card-rgb', hexToRgb(a.accent));
+    btn.addEventListener('click', () => select(i));
+    btn.addEventListener('dblclick', () => {
+      select(i);
+      launchSelected();
+    });
+    return btn;
+  }
+
+  /** Positions (dans state.apps) des boîtes du sélecteur : les modules n'en font pas partie (flèches, 1–9). */
+  const cardOrder = () => state.apps.map((a, i) => (a.module ? -1 : i)).filter((i) => i >= 0);
+
   function buildCards() {
     state.cards = state.apps.map((a, i) => {
+      if (a.module) return moduleButton(a, i);
       const st = statusOf(a);
       const face = h(
         'div',
@@ -182,8 +209,9 @@
       });
       return card;
     });
-    track.replaceChildren(...state.cards);
-    if (!state.cards.length) track.append(h('div', { class: 'empty-state' }, 'Aucune application dans le catalogue.'));
+    track.replaceChildren(...state.cards.filter((c, i) => !state.apps[i].module));
+    $('modules').replaceChildren(...state.cards.filter((c, i) => state.apps[i].module));
+    if (!cardOrder().length) track.append(h('div', { class: 'empty-state' }, 'Aucune application dans le catalogue.'));
   }
 
   function select(i, { quiet = false } = {}) {
@@ -194,7 +222,8 @@
     const a = state.apps[index];
     state.cards.forEach((card, j) => {
       card.classList.toggle('active', j === index);
-      card.setAttribute('aria-selected', String(j === index));
+      if (state.apps[j].module) card.setAttribute('aria-pressed', String(j === index));
+      else card.setAttribute('aria-selected', String(j === index));
     });
 
     // Couleur de l'application : interface, nébuleuse, étoiles
@@ -314,7 +343,9 @@
   function flyIcon(a) {
     const target = $('ls-icon');
     target.src = `assets/apps/${a.icon}`;
-    const from = state.cards[state.index].querySelector('.card-icon').getBoundingClientRect();
+    const icon = state.cards[state.index].querySelector('.card-icon, .module-icon');
+    if (!icon) return;
+    const from = icon.getBoundingClientRect();
     const to = target.getBoundingClientRect();
     if (!from.width || !to.width || reducedMotion.matches) return;
     const dx = from.left + from.width / 2 - (to.left + to.width / 2);
@@ -476,7 +507,7 @@
       }
       let bar = card.querySelector('.card-progress span');
       if (!bar) {
-        card.querySelector('.card-face').append(h('div', { class: 'card-progress', 'aria-hidden': 'true' }, h('span')));
+        (card.querySelector('.card-face') || card).append(h('div', { class: 'card-progress', 'aria-hidden': 'true' }, h('span'))); // boîte ou module
         bar = card.querySelector('.card-progress span');
       }
       bar.style.width = `${pct}%`;
@@ -496,6 +527,8 @@
   /** Fin de l'installation : nouvelle détection (l'application apparaît prête à lancer), message. */
   async function finishInstall(name, res) {
     state.op = null;
+    dropPendingRefresh(); // une détection demandée pendant l'installation la ferait réapparaître
+    opChanged();
     if (res && res.ok) toast(`${name} est installé : prêt à lancer.`);
     else if (res && res.cancelled) toast('Installation annulée.');
     else toast((res && res.error) || 'Installation impossible.');
@@ -507,6 +540,7 @@
     state.op = { id: a.id, name: a.name, phase: 'prepare', percent: 0, owned: true };
     renderDetails(a, false);
     updateProgress();
+    opChanged();
     toast(`Installation de ${a.name} en arrière-plan : vous pouvez continuer à utiliser V3Redis.`);
     const res = await hub.addApp(a.id).catch((err) => ({ ok: false, error: err && err.message }));
     await finishInstall(a.name, res);
@@ -522,13 +556,22 @@
   function initAppProgress() {
     if (!hub.onAppProgress) return;
     hub.onAppProgress((p) => {
-      if (!state.op || p.id !== state.op.id) return;
+      const ended = ['done', 'error', 'cancelled'].includes(p.phase);
+      if (!state.op || p.id !== state.op.id) {
+        // Fin d'une installation que cette fenêtre ne suit pas (encore) : une détection en cours la montrerait
+        // toujours « en cours » ; elle est ignorée et refaite
+        if (ended) {
+          dropPendingRefresh();
+          refresh();
+        }
+        return;
+      }
       Object.assign(state.op, p);
       updateProgress();
       // Installation lancée par une autre fenêtre (avant un passage en mode Light, par exemple) : personne
       // n'attend sa réponse ici, la fin est repérée par l'avancement
-      if (!state.op.owned && ['done', 'error', 'cancelled'].includes(p.phase)) {
-        finishInstall(state.op.name || p.id, { ok: p.phase === 'done', cancelled: p.phase === 'cancelled', error: p.phase === 'error' ? 'Installation impossible.' : null });
+      if (!state.op.owned && ended) {
+        finishInstall(state.op.name || p.id, { ok: p.phase === 'done', cancelled: p.phase === 'cancelled', error: p.phase === 'error' ? p.error || 'Installation impossible.' : null });
       }
     });
   }
@@ -542,21 +585,39 @@
   // Chargement / actualisation
   // ---------------------------------------------------------------------------
 
+  // Détections numérotées : une réponse plus ancienne que la dernière appliquée (ou demandée avant la fin d'une
+  // installation) est ignorée, sinon elle ferait réapparaître une installation terminée, bloquée à 99 %
+  const detection = { asked: 0, applied: 0 };
+
+  /** Les détections en cours sont périmées (installation terminée entre-temps). */
+  function dropPendingRefresh() {
+    detection.applied = detection.asked;
+  }
+
   async function refresh() {
+    const seq = ++detection.asked;
     const apps = await hub.listApps();
+    if (seq <= detection.applied) return;
+    detection.applied = seq;
     if (!Array.isArray(apps)) {
       toast(`Erreur : ${(apps && apps.error) || 'catalogue illisible'}`);
       return;
     }
     const currentId = state.apps[state.index] ? state.apps[state.index].id : storage.get();
     state.apps = apps;
+    // Installation suivie par cette fenêtre sans l'avoir lancée : terminée si plus aucune application ne l'annonce
+    const opBefore = state.op;
+    if (state.op && !state.op.owned && !apps.some((a) => a.id === state.op.id && a.installing)) state.op = null;
     // Installation en cours lancée par une fenêtre précédente : on reprend son avancement
     const running = apps.find((a) => a.installing);
     if (running && !state.op) state.op = { ...running.installing, id: running.id, name: running.name, owned: false };
+    if (state.op !== opBefore) opChanged();
     buildCards();
     const ready = apps.filter((a) => a.installed).length;
     $('app-count').textContent = `${apps.length} application${apps.length > 1 ? 's' : ''} · ${ready} prête${ready > 1 ? 's' : ''} à lancer`;
-    select(Math.max(0, apps.findIndex((a) => a.id === currentId)), { quiet: true });
+    // Premier affichage sans choix mémorisé : la première boîte du sélecteur (pas un module)
+    const known = apps.findIndex((a) => a.id === currentId);
+    select(known >= 0 ? known : cardOrder()[0] || 0, { quiet: true });
     updateProgress(); // les boîtes viennent d'être reconstruites
   }
 
@@ -588,10 +649,26 @@
     initWindowControls();
     initModeToggle();
     document.addEventListener('keydown', (e) => {
-      if (e.altKey || e.ctrlKey || e.metaKey) return;
-      const onButton = e.target instanceof HTMLButtonElement; // Entrée sur un bouton = son propre clic
-      if (e.key === 'Enter' && !onButton) launchSelected();
-      else if (/^[1-9]$/.test(e.key) && Number(e.key) <= state.apps.length) select(Number(e.key) - 1);
+      if (e.altKey || e.ctrlKey || e.metaKey || state.busy) return; // rien pendant un lancement
+      // Entrée sur un bouton = son propre clic, sauf sur une boîte du sélecteur : elle lance son application
+      const card = state.cards.indexOf(e.target);
+      const onButton = e.target instanceof HTMLButtonElement && card < 0;
+      const go = (i) => {
+        select(i);
+        if (card >= 0 && state.cards[state.index]) state.cards[state.index].focus(); // le focus suit le choix
+      };
+      // Flèches, Début / Fin, 1–9 : parmi les boîtes du sélecteur (depuis un module, ← → repartent des boîtes)
+      const order = cardOrder();
+      const pos = order.indexOf(state.index);
+      const step = (d) => go(order[pos < 0 ? (d > 0 ? 0 : order.length - 1) : Math.max(0, Math.min(order.length - 1, pos + d))]);
+      if (e.key === 'Enter' && !onButton) {
+        if (card >= 0) select(card);
+        launchSelected();
+      } else if (/^[1-9]$/.test(e.key) && Number(e.key) <= order.length) go(order[Number(e.key) - 1]);
+      else if (e.key === 'ArrowLeft' && order.length) step(-1);
+      else if (e.key === 'ArrowRight' && order.length) step(1);
+      else if (e.key === 'Home' && order.length) go(order[0]);
+      else if (e.key === 'End' && order.length) go(order[order.length - 1]);
       else return;
       e.preventDefault();
     });
@@ -719,6 +796,8 @@
       }
     }
     if (upd.blocked) more = upd.blocked;
+    // Application en cours d'installation : la mise à jour fermerait V3Redis en pleine extraction
+    else if (state.op && s.state === 'downloaded' && !upd.installing) more = `Installation de ${state.op.name || 'l\'application'} en cours : la mise à jour pourra être installée ensuite.`;
     st.textContent = title;
     detail.textContent = more;
     detail.classList.toggle('warn', Boolean(upd.blocked) || s.state === 'error');
@@ -746,7 +825,7 @@
       return b;
     };
     if (s.mode !== 'disabled') {
-      if (s.state === 'downloaded') actions.push(btn('Installer et redémarrer', 'primary', installUpdate, upd.installing));
+      if (s.state === 'downloaded') actions.push(btn('Installer et redémarrer', 'primary', installUpdate, upd.installing || Boolean(state.op)));
       if (['idle', 'not-available', 'error', 'available'].includes(s.state)) actions.push(btn('Rechercher maintenant', s.state === 'available' ? 'ghost' : '', manualCheck));
       if (s.version && s.mode !== 'disabled') actions.push(btn(s.state === 'available' ? 'Ouvrir la release' : 'Voir la release', s.state === 'available' ? 'primary' : 'ghost', () => hub.updateOpenRelease()));
     }
@@ -774,8 +853,13 @@
     else if (s && s.state === 'error') toast(`Mises à jour : ${s.error}`);
   }
 
+  /** Installation d'une application commencée ou terminée : le bouton « Installer et redémarrer » en dépend. */
+  function opChanged() {
+    if (!$('update-panel').hidden) renderPanel();
+  }
+
   async function installUpdate() {
-    if (upd.installing) return;
+    if (upd.installing || state.op) return;
     upd.installing = true;
     upd.blocked = null;
     renderPanel();

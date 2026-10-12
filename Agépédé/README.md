@@ -35,6 +35,7 @@ directement depuis l'application.
   refusée, Agépédé s'ouvre quand même, sans droits). Relance via `powershell Start-Process -Verb RunAs` (`lib/elevation.js`).
 - Sans ces outils (ou hors domaine), tout le reste fonctionne : saisie, vérification, aperçu et export du script `.bat`
   pour le lancer ailleurs. Les boutons « Simulation » et « Exécuter sur l'AD » sont alors désactivés avec l'explication.
+  Un projet qui ne contient que des dossiers et des permissions n'a besoin que d'`icacls` (pas de RSAT).
 
 ## Prise en main
 
@@ -66,11 +67,12 @@ directement depuis l'application.
      partout »). Casser = `icacls /inheritance:d` (droits hérités recopiés), puis, option cochée par défaut, retrait
      d'« Utilisateurs » et « Utilisateurs authentifiés » : seuls les administrateurs et les DL de l'onglet Permissions gardent l'accès.
 3. **Script & exécution** : liste des erreurs (bloquantes) et avertissements — un clic mène à la cellule —, aperçu du script,
-   « Copier », « Exporter .bat », « Simulation » (indique ce qui existe déjà, sans rien modifier), « Exécuter sur l'AD »
+   « Copier », « Exporter .bat », « Simulation » (indique ce qui existe déjà et les membres introuvables, sans rien modifier), « Exécuter sur l'AD »
    (confirmation avec le domaine et le nombre d'OU, d'utilisateurs, de groupes, d'appartenances, de dossiers et de permissions), « Arrêter »,
-   journal détaillé (cliquer une ligne pour voir la commande et sa sortie) et « Exporter le journal ».
+   journal détaillé (cliquer une ligne pour voir la commande et sa sortie) et « Exporter le journal » (mots de passe masqués).
 4. **Projet** : Nouveau, Ouvrir, Enregistrer, Enregistrer sous (fichier `.agepede.json`). Un brouillon est conservé
-   automatiquement et restauré au démarrage ; la fermeture avec des modifications non enregistrées demande confirmation.
+   automatiquement et restauré au démarrage, **sans les mots de passe** (à ressaisir) ; la fermeture avec des modifications
+   non enregistrées demande confirmation.
 
 Raccourcis : Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Maj+S, Ctrl+1 à Ctrl+7 (onglets), F1 (aide).
 

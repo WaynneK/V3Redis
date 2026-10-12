@@ -43,14 +43,19 @@ export function create() {
   function plan() {
     const count = state.file.pageCount;
     const R = window.PageRanges;
+    let p;
     try {
-      if (state.mode === 'every') return { groups: R.chunk(count, state.every) };
-      if (state.mode === 'each') return { groups: R.chunk(count, 1) };
-      if (state.mode === 'ranges') return state.ranges.trim() ? { groups: R.parseGroups(state.ranges, count) } : { groups: [], error: 'Indiquez les plages : chaque élément séparé par une virgule devient un fichier.' };
-      return state.extract.trim() ? { groups: [R.parsePageList(state.extract, count)] } : { groups: [], error: 'Indiquez les pages à extraire.' };
+      // state.every vaut NaN quand la saisie est invalide : chunk() le refuse avec un message clair
+      if (state.mode === 'every') p = { groups: R.chunk(count, state.every) };
+      else if (state.mode === 'each') p = { groups: R.chunk(count, 1) };
+      else if (state.mode === 'ranges') p = state.ranges.trim() ? { groups: R.parseGroups(state.ranges, count) } : { groups: [], error: 'Indiquez les plages : chaque élément séparé par une virgule devient un fichier.' };
+      else p = state.extract.trim() ? { groups: [R.parsePageList(state.extract, count)] } : { groups: [], error: 'Indiquez les pages à extraire.' };
     } catch (err) {
       return { groups: [], error: err.message };
     }
+    // Un fichier sans page ne peut pas être créé (ex. « paires » sur un document d'une page)
+    if (!p.error && p.groups.some((g) => !g.length)) return { groups: [], error: 'Aucune page ne correspond à cette saisie dans ce document.' };
+    return p;
   }
 
   const partName = (i, total) => `${baseName(state.file.name)}_partie-${String(i + 1).padStart(String(total).length, '0')}`;
@@ -90,14 +95,15 @@ export function create() {
 
   function modeInput() {
     if (state.mode === 'every') {
-      const input = h('input', { type: 'number', min: '1', max: String(state.file.pageCount), step: '1', value: String(state.every), class: 'num-input', 'aria-label': 'Nombre de pages par fichier' });
+      const valid = Number.isInteger(state.every);
+      const input = h('input', { type: 'number', min: '1', max: String(state.file.pageCount), step: '1', value: valid ? String(state.every) : '', class: `num-input${valid ? '' : ' invalid'}`, 'aria-label': 'Nombre de pages par fichier' });
       input.addEventListener('input', () => {
         const n = Number(input.value);
-        if (Number.isInteger(n) && n >= 1) {
-          state.every = Math.min(n, state.file.pageCount);
-          input.classList.remove('invalid');
-          updatePreview();
-        } else input.classList.add('invalid');
+        // Champ vide ou invalide : l'ancienne valeur n'est pas gardée en douce, le bouton est désactivé
+        const ok = input.value.trim() !== '' && Number.isInteger(n) && n >= 1;
+        state.every = ok ? Math.min(n, state.file.pageCount) : NaN;
+        input.classList.toggle('invalid', !ok);
+        updatePreview();
       });
       return h('label', { class: 'inline-field' }, h('span', null, 'Un fichier toutes les'), input, h('span', null, 'pages'));
     }

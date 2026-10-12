@@ -21,7 +21,9 @@
  *
  * Usage : npm run build   (options : --skip-apps, --skip-missing, --arch arm64|x64, --publish)
  * --publish (npm run release) : envoie les fichiers dans la release brouillon « vX.Y.Z » de WaynneK/V3Redis
- * (variable GH_TOKEN requise) ; il reste à la publier.
+ * (variable GH_TOKEN requise) ; il reste à la publier. electron-builder envoie l'installeur (Setup, .blockmap,
+ * latest.yml) ; sous Windows, les paquets des applications (.zip et .json) sont envoyés avec la CLI GitHub (gh)
+ * si elle est installée et connectée, sinon la liste des fichiers à joindre à la main est affichée.
  */
 'use strict';
 
@@ -44,6 +46,7 @@ const skipMissing = args.includes('--skip-missing');
 const publish = args.includes('--publish');
 const archArg = args.includes('--arch') ? args[args.indexOf('--arch') + 1] : null;
 const ARCH = archArg || (PLATFORM === 'darwin' ? process.arch : 'x64');
+const RELEASE_REPO = 'WaynneK/V3Redis'; // dépôt des releases (package.json › build.publish)
 
 if (!Platforms.SUPPORTED.includes(PLATFORM)) {
   console.error(`Système non pris en charge : ${PLATFORM} (Windows, Linux ou macOS).`);
@@ -201,10 +204,53 @@ if (fs.existsSync(main)) {
   console.log(`\nPaquet prêt : dist/${path.basename(main)} (${(fs.statSync(main).size / 1048576).toFixed(0)} Mo) — ${product} + ${bundled.map((a) => a.name).join(' + ')}`);
   const missing = outputs.filter((f) => !fs.existsSync(f));
   if (missing.length) console.warn(`Attention, fichiers attendus absents : ${missing.map((f) => path.basename(f)).join(', ')}`);
-  else if (publish) console.log(`Fichiers envoyés dans la release brouillon v${pkg.version} de github.com/WaynneK/V3Redis : vérifiez-la puis cliquez sur « Publish release ».`);
-  else console.log(`Mise à jour : joindre ${outputs.map((f) => path.basename(f)).join(', ')} à la release GitHub « v${pkg.version} » de WaynneK/V3Redis.`);
+  if (publish) {
+    // electron-builder n'envoie que ses propres fichiers (installeur, .blockmap, latest.yml…), pas les paquets des applications
+    const sent = outputs.filter((f) => !packFiles.includes(path.basename(f)) && fs.existsSync(f)).map((f) => path.basename(f));
+    console.log(`Envoyés par electron-builder dans la release brouillon v${pkg.version} de github.com/${RELEASE_REPO} : ${sent.join(', ')}.`);
+    if (packFiles.length) publishPacks(`v${pkg.version}`, packFiles);
+    console.log('Il reste à vérifier la release brouillon puis à cliquer sur « Publish release ».');
+  } else if (!missing.length) {
+    console.log(`Mise à jour : joindre ${outputs.map((f) => path.basename(f)).join(', ')} à la release GitHub « v${pkg.version} » de ${RELEASE_REPO}.`);
+  }
 }
 if (skipped.size) console.warn(`Paquet construit sans : ${[...skipped].join(', ')} (projet introuvable).`);
+
+/**
+ * --publish, Windows : paquets des applications (.zip) et leur liste (.json), indispensables pour installer une
+ * application depuis le HUB. Envoyés avec la CLI GitHub (gh) si elle est installée et connectée (GH_TOKEN) ;
+ * sinon, liste exacte des fichiers à joindre à la main. GitHub Actions : l'étape suivante du workflow s'en charge.
+ */
+function publishPacks(tag, names) {
+  const files = names.map((n) => path.join(dist, n));
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    console.log(`Paquets des applications (${names.join(', ')}) : envoyés par l'étape suivante du workflow.`);
+    return;
+  }
+  const gh = (ghArgs, stdio) => spawnSync('gh', ghArgs, { cwd: HUB, stdio, windowsHide: true });
+  const auth = gh(['auth', 'status'], 'ignore');
+  const ready = !auth.error && auth.status === 0;
+  if (ready) {
+    console.log(`\nEnvoi des paquets des applications dans la release brouillon ${tag} (gh release upload)…`);
+    const res = gh(['release', 'upload', tag, ...files, '--clobber', '--repo', RELEASE_REPO], 'inherit');
+    if (!res.error && res.status === 0) {
+      console.log(`Envoyés avec gh : ${names.join(', ')}.`);
+      return;
+    }
+    console.error(`Envoi avec gh impossible (code ${res.status}).`);
+    process.exitCode = 1;
+  }
+  const why = ready ? '' : auth.error ? ' (CLI GitHub « gh » introuvable)' : ' (CLI GitHub « gh » non connectée : « gh auth login » ou GH_TOKEN)';
+  console.warn(
+    [
+      '',
+      `À FAIRE${why} : joindre À LA MAIN à la release brouillon ${tag} (https://github.com/${RELEASE_REPO}/releases) ces ${names.length} fichiers de dist/,`,
+      'sans lesquels « Installer » une application depuis V3Redis échoue :',
+      ...names.map((n) => `  • ${n}`),
+      `Ou, une fois gh installé et connecté : gh release upload ${tag} ${names.map((n) => `"dist/${n}"`).join(' ')} --clobber --repo ${RELEASE_REPO}`,
+    ].join('\n')
+  );
+}
 
 /** Empreinte SHA-512 en base64 (même forme que celle vérifiée par le HUB). */
 function sha512(file) {

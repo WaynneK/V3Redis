@@ -17,13 +17,14 @@
   const HISTORY_KEY = 'calkip.history';
   const SPLIT_PAGE = 256;
   const BIG_EXPORT_BYTES = 50 * 1024 * 1024; // au-delà : confirmation avant l'export
+  const CONFIRM_DELAY_MS = 400; // un clic de confirmation plus rapide est ignoré (double-clic, Entrée maintenue)
 
   const state = {
     mode: 'auto', // 'auto' | '8' | '16' | '24' | '32' | 'custom'
     data: null, // { parsed, calc, pool, poolError, reason }
     splitShown: SPLIT_PAGE,
     exporting: false,
-    confirmArmed: false,
+    confirmArmed: 0, // heure (ms) de la première demande d'un gros export, 0 = pas de confirmation en attente
   };
 
   // ---------------------------------------------------------------------------
@@ -144,12 +145,15 @@
     return Number(state.mode);
   }
 
+  // Réservations : entier ≥ 0, comme dans IPCalc.dhcpPool (négatif ou décimal ramené au même nombre)
+  const reserveCount = (value) => Math.max(0, Math.floor(Number(value) || 0));
+
   function dhcpOptions() {
     return {
       gateway: (document.querySelector('input[name="gateway"]:checked') || {}).value || 'first',
       customGateway: $('custom-gateway').value,
-      reserveStart: Number($('reserve-start').value) || 0,
-      reserveEnd: Number($('reserve-end').value) || 0,
+      reserveStart: reserveCount($('reserve-start').value),
+      reserveEnd: reserveCount($('reserve-end').value),
       exclusions: $('exclusions').value,
       limit: $('lease-limit').value,
     };
@@ -187,8 +191,8 @@
     const gw = document.querySelector(`input[name="gateway"][value="${s.gateway}"]`);
     if (gw) gw.checked = true;
     $('custom-gateway').value = s.customGateway || '';
-    $('reserve-start').value = Number(s.reserveStart) || 0;
-    $('reserve-end').value = Number(s.reserveEnd) || 0;
+    $('reserve-start').value = reserveCount(s.reserveStart);
+    $('reserve-end').value = reserveCount(s.reserveEnd);
     $('exclusions').value = s.exclusions || '';
     $('lease-limit').value = s.limit || '';
     const scope = document.querySelector(`input[name="scope"][value="${s.scope}"]`);
@@ -505,6 +509,14 @@
     select.value = String(current > d.calc.prefix && current <= 32 ? current : fallback);
   }
 
+  /** Export du découpage possible : réseau découpable, au plus 2^20 sous-réseaux, aucun export en cours. */
+  function updateSplitButton() {
+    const d = state.data;
+    const p = Number($('split-prefix').value);
+    const ok = d && d.calc.prefix < 32 && p > d.calc.prefix && 2 ** (p - d.calc.prefix) <= 2 ** 20;
+    $('export-split').disabled = !ok || state.exporting;
+  }
+
   function renderSplit(d) {
     const { calc } = d;
     const table = $('split-table');
@@ -519,7 +531,7 @@
     const p = Number($('split-prefix').value);
     const res = C.splitSubnets(calc, p, state.splitShown);
     $('split-info').textContent = `${fmt(res.count)} sous-réseaux /${res.prefix} de ${fmt(res.size)} adresses (${fmt(res.usablePerSubnet)} utilisables chacun). Le sous-réseau qui contient l'adresse saisie est surligné.`;
-    $('export-split').disabled = res.count > 2 ** 20 || state.exporting;
+    updateSplitButton();
     if (res.count > 2 ** 20) $('split-info').textContent += ` Trop nombreux pour un export (limite ${fmt(2 ** 20)}).`;
     const head = h('thead', null, h('tr', null, ['N°', 'Réseau', 'Première', 'Dernière', 'Diffusion', 'Hôtes'].map((t) => h('th', null, t))));
     const rows = res.subnets.map((s, i) =>
@@ -597,22 +609,26 @@
   // ---------------------------------------------------------------------------
 
   function disarmConfirm() {
-    state.confirmArmed = false;
+    state.confirmArmed = 0;
     const b = $('export-list');
     b.classList.remove('confirm');
     b.textContent = 'Exporter la liste (.txt)';
   }
 
-  function setExporting(on) {
+  /**
+   * Export en cours : tous les boutons d'export sont désactivés (un seul export à la fois).
+   * withProgress : barre de progression et bouton Annuler (export de la liste uniquement).
+   */
+  function setExporting(on, withProgress = true) {
     state.exporting = on;
-    $('progress').hidden = !on;
+    $('progress').hidden = !(on && withProgress);
     if (on) {
       $('progress-bar').style.width = '0%';
       $('progress-text').textContent = 'Préparation…';
       $('export-done').hidden = true;
     }
     if (state.data) renderExport(state.data);
-    $('export-split').disabled = on;
+    updateSplitButton();
   }
 
   function showDone(res, label) {
@@ -626,9 +642,10 @@
   async function exportList() {
     if (!state.data || state.exporting || $('export-list').disabled) return;
     const est = estimate(state.data);
-    // Gros fichier : un second clic confirme
-    if (est.bytes > BIG_EXPORT_BYTES && !state.confirmArmed) {
-      state.confirmArmed = true;
+    // Gros fichier : un second clic confirme (pas un double-clic ni une touche maintenue : délai minimal)
+    if (est.bytes > BIG_EXPORT_BYTES && (!state.confirmArmed || Date.now() - state.confirmArmed < CONFIRM_DELAY_MS)) {
+      if (state.confirmArmed) return;
+      state.confirmArmed = Date.now();
       const b = $('export-list');
       b.classList.add('confirm');
       b.textContent = `Confirmer l'export (≈ ${formatBytes(est.bytes)})`;
@@ -654,12 +671,17 @@
 
   async function exportSummary(split) {
     if (!state.data || state.exporting) return;
-    const res = await api.exportSummary({ ...request(), split: split || null });
-    if (res && res.ok) {
-      showDone(res, split ? 'Découpage enregistré' : 'Résumé enregistré');
-      toast(split ? 'Découpage enregistré.' : 'Résumé enregistré.');
-    } else if (res && !res.canceled) {
-      toast(res.error || 'Export impossible.');
+    setExporting(true, false);
+    try {
+      const res = await api.exportSummary({ ...request(), split: split || null });
+      if (res && res.ok) {
+        showDone(res, split ? 'Découpage enregistré' : 'Résumé enregistré');
+        toast(split ? 'Découpage enregistré.' : 'Résumé enregistré.');
+      } else if (res && !res.canceled) {
+        toast(res.error || 'Export impossible.');
+      }
+    } finally {
+      setExporting(false, false);
     }
   }
 
@@ -719,6 +741,7 @@
     $('tab-calc').parentElement.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
       e.preventDefault();
+      e.stopPropagation(); // sinon le raccourci du document ferait aussi changer d'étape dans l'onglet Binaire
       setView(view === 'calc' ? 'binary' : 'calc');
       $(view === 'calc' ? 'tab-calc' : 'tab-binary').focus();
     });
@@ -876,6 +899,8 @@
       const ctrl = (e.ctrlKey || e.metaKey) && !e.altKey;
       if (ctrl && e.key.toLowerCase() === 's') {
         e.preventDefault();
+        // Touche maintenue : la répétition automatique confirmerait un gros export, ou en relancerait un
+        if (e.repeat) return;
         // Ctrl + S : la liste dans la calculatrice, le calcul expliqué dans l'onglet Binaire
         if (view === 'binary') window.BinaryView.exportSteps();
         else exportList();

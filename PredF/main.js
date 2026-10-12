@@ -195,11 +195,20 @@ function defaultDir(hintId) {
   return app.getPath('documents');
 }
 
-const safeName = (s) =>
-  String(s || 'document')
+/**
+ * Nom de fichier sûr. Trop long : coupé AU MILIEU, la fin est gardée (extension, « _partie-12 », « _page-003 »)
+ * — couper la fin faisait perdre l'extension et confondait les fichiers d'un même découpage.
+ */
+function safeName(s, max = 150) {
+  let name = String(s || 'document')
     .replace(/[\\/:*?"<>|\x00-\x1f]+/g, '-')
-    .replace(/^[.\s]+|[.\s]+$/g, '')
-    .slice(0, 150) || 'document';
+    .replace(/^[.\s]+|[.\s]+$/g, '');
+  if (name.length > max) {
+    const tail = name.slice(-40);
+    name = `${name.slice(0, max - tail.length - 1).replace(/[.\s]+$/, '')}…${tail}`;
+  }
+  return name || 'document';
+}
 
 /** Chemin libre : « nom.pdf », sinon « nom (2).pdf »… (jamais d'écrasement silencieux). */
 async function uniquePath(dir, fileName) {
@@ -355,7 +364,12 @@ function registerIpc() {
   handle('files:add', async (paths) => {
     const list = (Array.isArray(paths) ? paths : []).filter((p) => typeof p === 'string' && path.isAbsolute(p)).slice(0, 500);
     const files = [];
-    for (const p of list) files.push(await addFile(p));
+    for (const p of list) {
+      // Chemin réseau (\\serveur\partage, //serveur, \\?\UNC\…) : jamais lu à la demande de la page, car
+      // le simple accès enverrait l'identité Windows (NTLM) à un serveur choisi par une page compromise
+      if (/^[\\/]{2}/.test(p)) files.push({ name: path.basename(p), error: 'Fichier sur un partage réseau : copiez-le d\'abord sur cet ordinateur, ou choisissez-le avec Ctrl + O.' });
+      else files.push(await addFile(p));
+    }
     return { ok: true, files };
   });
   handle('files:bytes', async (id) => getDoc(id).bytes);
@@ -386,6 +400,14 @@ function registerIpc() {
     const groups = Array.isArray(req.groups) ? req.groups : [];
     if (!groups.length) throw new Engine.PdfError('Aucun fichier à créer.');
     if (groups.length > 5000) throw new Engine.PdfError('Trop de fichiers (5 000 au maximum).');
+    // Tout est vérifié AVANT de choisir le dossier : un groupe vide ne laisse plus des fichiers à moitié créés
+    const cleaned = groups.map((g, i) => {
+      try {
+        return cleanItems(g.items);
+      } catch (err) {
+        throw new Engine.PdfError(`Fichier ${i + 1} : ${err.message}`);
+      }
+    });
     const res = await dialog.showOpenDialog(mainWindow, { title: 'Dossier où enregistrer les fichiers', defaultPath: defaultDir(req.hintId), properties: ['openDirectory', 'createDirectory'] });
     if (res.canceled || !res.filePaths.length) return { ok: false, canceled: true };
     const dir = res.filePaths[0];
@@ -394,10 +416,16 @@ function registerIpc() {
     const files = [];
     for (let i = 0; i < groups.length; i++) {
       sendProgress(i, groups.length, `Fichier ${i + 1} sur ${groups.length}…`);
-      const bytes = await Engine.buildPdf(cleanItems(groups[i].items), sourceOf);
-      const filePath = await uniquePath(dir, `${safeName(groups[i].name)}.pdf`);
-      await writeFileSafe(filePath, bytes);
-      files.push({ filePath, size: bytes.length, pages: groups[i].items.length });
+      try {
+        const bytes = await Engine.buildPdf(cleaned[i], sourceOf);
+        const filePath = await uniquePath(dir, `${safeName(groups[i].name, 146)}.pdf`);
+        await writeFileSafe(filePath, bytes);
+        files.push({ filePath, size: bytes.length, pages: cleaned[i].length });
+      } catch (err) {
+        // Arrêt en cours de route : on dit ce qui a déjà été enregistré
+        const done = files.length ? ` ${files.length} fichier${files.length > 1 ? 's' : ''} déjà enregistré${files.length > 1 ? 's' : ''} dans ${dir}.` : '';
+        throw new Engine.PdfError(`Fichier ${i + 1} : ${err.message}${done}`);
+      }
     }
     sendProgress(groups.length, groups.length, 'Terminé');
     return { ok: true, dir, files };
@@ -855,9 +883,11 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('second-instance', (_event, argv) => {
     const files = collectArgFiles(argv);
-    if (files.length && mainWindow && !mainWindow.isDestroyed()) {
+    // Toujours mis en file : si la fenêtre n'existe pas encore (écran de chargement), l'interface les
+    // récupère à son démarrage (app:pendingOpen) ; sinon elle est prévenue tout de suite
+    if (files.length) {
       pendingOpen.push(...files);
-      mainWindow.webContents.send('app:openFiles');
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('app:openFiles');
     }
     if (splashWindow && !splashWindow.isDestroyed()) {
       splashWindow.focus();

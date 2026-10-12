@@ -226,6 +226,36 @@ function checkSaysExists(r) {
   return String(text || '').trim() !== '';
 }
 
+/**
+ * Garde-fou (défense en profondeur) avant d'envoyer quoi que ce soit à cmd.exe. Agdlp.plan() ne produit
+ * jamais ces lignes (domaine et noms sont validés), mais un DN mal formé ne doit en aucun cas passer :
+ *  - un DN (objet, membre) est écrit entre guillemets : ni « " », ni « % », ni retour à la ligne ;
+ *  - une ligne (commande, test, recherche) : pas de retour à la ligne, guillemets appariés (sinon
+ *    & | < > ^ se retrouveraient hors guillemets et seraient interprétés par cmd.exe).
+ * Renvoie null ou la raison du refus.
+ */
+function unsafeStep(step) {
+  if (!step || typeof step !== 'object') return 'étape invalide';
+  const dns = [step.dn, step.member && step.member.dn].filter((v) => v !== null && v !== undefined);
+  for (const dn of dns) {
+    if (typeof dn !== 'string' || /["%\r\n]/.test(dn)) return `DN refusé (caractère " % ou retour à la ligne) : ${String(dn)}`;
+  }
+  const lines = [step.command, step.check, step.member && step.member.query].filter((v) => v !== null && v !== undefined);
+  for (const line of lines) {
+    if (typeof line !== 'string' || /[\r\n]/.test(line)) return 'ligne de commande sur plusieurs lignes';
+    if ((line.match(/"/g) || []).length % 2) return `guillemets non appariés : ${line}`;
+  }
+  return null;
+}
+
+/**
+ * Délai maximal d'une commande selon l'étape. icacls (droits, héritage) et mkdir parcourent toute
+ * l'arborescence : sur un gros partage, les interrompre laisserait des droits à moitié appliqués.
+ * 0 = pas de délai (le bouton « Arrêter » reste disponible) ; undefined = délai par défaut de runCommand.
+ */
+const NO_TIMEOUT_KINDS = ['acl', 'inherit', 'folder'];
+const timeoutFor = (step) => (step && NO_TIMEOUT_KINDS.includes(step.kind) ? 0 : undefined);
+
 /** Premier DN d'une sortie dsquery (une ligne par objet, en général entre guillemets). */
 function firstDn(text) {
   for (const raw of String(text || '').split(/\r?\n/)) {
@@ -238,20 +268,27 @@ function firstDn(text) {
 /**
  * Exécute les étapes dans l'ordre.
  * options :
- *   dryRun  : simulation — seuls les tests d'existence (lecture seule) sont lancés ;
- *             statut 'todo' (à créer), 'exists' ou 'unknown' (étape sans test) ;
+ *   dryRun  : simulation — seuls les tests d'existence et les recherches de membres (dsquery, lecture
+ *             seule) sont lancés ; statut 'todo' (à créer), 'exists', 'unknown' (étape sans test) ou
+ *             'error' (membre introuvable dans l'annuaire) ;
  *   run     : lanceur injectable (line, { signal }) → Promise<{ exitCode, output, stdout? }>
  *             (exec est accepté comme alias) ; par défaut runCommand ;
  *   signal  : AbortSignal pour annuler ; les étapes restantes sont 'cancelled' ;
  *   onStep  : rappel ({ index, total, step, status, message, output, durationMs, code }) ;
  *   platform: pour les tests (par défaut process.platform).
  * Une étape dont une étape préalable (step.needs) a échoué est 'skipped'.
+ * Lève une exception, sans rien lancer, si une étape ne passe pas le garde-fou unsafeStep().
  * Renvoie { total, ok, exists, errors, skipped, cancelled, todo, unknown }.
  */
 async function runSteps(steps, options = {}) {
   const platform = options.platform || process.platform;
   if (platform !== 'win32') throw new Error("Agépédé ne peut exécuter les commandes que sous Windows (contrôleur de domaine ou poste avec RSAT). Exportez le script .bat à la place.");
   const list = Array.isArray(steps) ? steps : [];
+  // Une seule étape suspecte et rien n'est lancé (pas même les tests d'existence de la simulation)
+  for (const step of list) {
+    const why = unsafeStep(step);
+    if (why) throw new Error(`Exécution refusée : ${why}.`);
+  }
   const run = options.run || options.exec || ((line, o) => runCommand(line, o));
   const signal = options.signal;
   const dryRun = !!options.dryRun;
@@ -270,9 +307,9 @@ async function runSteps(steps, options = {}) {
       /* une erreur d'affichage ne doit pas arrêter l'exécution */
     }
   };
-  const runOne = async (line) => {
+  const runOne = async (line, timeoutMs) => {
     try {
-      const r = await run(line, { signal });
+      const r = await run(line, timeoutMs === undefined ? { signal } : { signal, timeoutMs });
       return r || { exitCode: null, output: '' };
     } catch (e) {
       return { exitCode: null, output: `Erreur de lancement : ${e && e.message ? e.message : e}` };
@@ -308,17 +345,9 @@ async function runSteps(steps, options = {}) {
       checked = true;
     }
 
-    if (dryRun) {
-      if (checked) report(index, step, 'todo', 'À faire.', '', started);
-      else {
-        const notes = { acl: 'Droit appliqué à l\'exécution (pas de vérification préalable).', inherit: 'Héritage cassé à l\'exécution (pas de vérification préalable).' };
-        report(index, step, 'unknown', notes[step.kind] || 'Non vérifiable avant exécution.', '', started);
-      }
-      continue;
-    }
-
-    // Membre connu seulement par son identifiant : la recherche dsquery est faite ici, puis dsmod reçoit le DN
-    // trouvé directement. Avec « for /f », cmd.exe sans console peut mal décoder un DN accentué.
+    // Membre connu seulement par son identifiant : la recherche dsquery (lecture seule) est faite ici, puis dsmod
+    // reçoit le DN trouvé directement. Avec « for /f », cmd.exe sans console peut mal décoder un DN accentué.
+    // En simulation aussi : un membre introuvable est signalé dès la simulation (aucun dsmod lancé).
     let line = step.command;
     let lookupOutput = '';
     if (step.kind === 'member' && step.member && step.member.lookup && step.member.query) {
@@ -340,18 +369,28 @@ async function runSteps(steps, options = {}) {
       lookupOutput = `> ${line}\n`;
     }
 
-    const r = await runOne(line);
+    if (dryRun) {
+      if (checked) report(index, step, 'todo', 'À faire.', '', started);
+      else {
+        const notes = { acl: 'Droit appliqué à l\'exécution (pas de vérification préalable).', inherit: 'Héritage cassé à l\'exécution (pas de vérification préalable).' };
+        report(index, step, 'unknown', notes[step.kind] || 'Non vérifiable avant exécution.', '', started);
+      }
+      continue;
+    }
+
+    const r = await runOne(line, timeoutFor(step));
     if (lookupOutput) r.output = lookupOutput + (r.output || '');
     if (signal && signal.aborted && r.exitCode !== 0) {
       report(index, step, 'cancelled', 'Annulé pendant la commande.', r.output, started);
       continue;
     }
     let cls = Agdlp.classifyResult({ exitCode: r.exitCode, output: r.output, kind: step.kind });
-    // Le test disait « absent » mais dsadd répond « existe déjà » : le nom est pris ailleurs
-    // (même sAMAccountName dans une autre OU). Les étapes suivantes échoueraient : c'est une erreur.
+    // Le test disait « absent » mais dsadd répond « existe déjà » : le nom est pris ailleurs (même
+    // sAMAccountName dans une autre OU), ou un objet d'un autre type occupe ce DN (le test filtre par type).
+    // Les étapes suivantes échoueraient : c'est une erreur.
     if (cls.status === 'exists' && checked && (step.kind === 'group' || step.kind === 'user')) {
       const what = step.kind === 'user' ? 'Un compte' : 'Un groupe';
-      cls = { status: 'error', message: `${what} portant ce nom (sAMAccountName) existe déjà ailleurs dans le domaine.`, code: cls.code };
+      cls = { status: 'error', message: `${what} portant ce nom (sAMAccountName) existe déjà ailleurs dans le domaine, ou un autre objet porte déjà ce nom dans cette OU.`, code: cls.code };
     }
     if (r.timedOut) cls = { status: 'error', message: 'Délai dépassé : commande interrompue.', code: null };
     report(index, step, cls.status, cls.message, r.output, started, cls.code);
@@ -359,4 +398,4 @@ async function runSteps(steps, options = {}) {
   return summary;
 }
 
-module.exports = { runCommand, runSteps, detectEnvironment, decodeOutput, decodeCp850, killTree, checkSaysExists, firstDn, TOOLS };
+module.exports = { runCommand, runSteps, detectEnvironment, decodeOutput, decodeCp850, killTree, checkSaysExists, firstDn, unsafeStep, timeoutFor, TOOLS };

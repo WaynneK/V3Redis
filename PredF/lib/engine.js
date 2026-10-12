@@ -9,11 +9,11 @@
  *                                         (fusion, organisation, extraction, découpe, images → PDF)
  *   createRasterJob()                   → PDF fait d'images de pages (compression)
  *   stampPdf(bytes, options)            → numéros de page, filigrane, propriétés
- *   optimizePdf(bytes)                  → réécriture sans perte (objets inutilisés retirés, flux d'objets)
+ *   optimizePdf(bytes)                  → réécriture sans perte (structure gardée, objets inutilisés retirés, flux d'objets)
  */
 'use strict';
 
-const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
+const { PDFDocument, PDFRef, PDFDict, PDFArray, PDFStream, StandardFonts, rgb, degrees } = require('pdf-lib');
 
 class PdfError extends Error {
   constructor(message) {
@@ -44,14 +44,16 @@ function startsWith(bytes, list, offset = 0) {
 /** 'pdf' | 'jpg' | 'png' | 'webp' | 'gif' | 'bmp' | null, d'après le contenu (pas l'extension). */
 function detectType(bytes) {
   if (!bytes || bytes.length < 4) return null;
-  // « %PDF » peut être précédé de quelques octets parasites
-  const head = Buffer.from(bytes.subarray(0, Math.min(1024, bytes.length))).toString('latin1');
-  if (head.includes('%PDF-')) return 'pdf';
+  // Signatures d'image d'abord : une photo peut contenir « %PDF- » dans ses métadonnées (EXIF, XMP)
   if (startsWith(bytes, [0xff, 0xd8, 0xff])) return 'jpg';
   if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'png';
   if (startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) && startsWith(bytes, [0x57, 0x45, 0x42, 0x50], 8)) return 'webp';
   if (startsWith(bytes, [0x47, 0x49, 0x46, 0x38])) return 'gif';
-  if (startsWith(bytes, [0x42, 0x4d])) return 'bmp';
+  // « BM » ne fait que 2 octets : on vérifie aussi la taille de l'en-tête DIB (12, 40, 108, 124…)
+  if (startsWith(bytes, [0x42, 0x4d]) && bytes.length >= 18 && [12, 16, 40, 52, 56, 64, 108, 124].includes(bytes[14] | (bytes[15] << 8) | (bytes[16] << 16) | (bytes[17] << 24))) return 'bmp';
+  // « %PDF » peut être précédé de quelques octets parasites
+  const head = Buffer.from(bytes.subarray(0, Math.min(1024, bytes.length))).toString('latin1');
+  if (head.includes('%PDF-')) return 'pdf';
   return null;
 }
 
@@ -206,11 +208,15 @@ function describeSize(width, height) {
 
 const norm = (angle) => ((Math.round(angle / 90) * 90) % 360 + 360) % 360;
 
-/** Format d'une page qui accueille une image, en points. */
-function imagePageSize(info, layout) {
+/**
+ * Format d'une page qui accueille une image, en points, AVANT la rotation demandée (`rotate`).
+ * L'orientation choisie (portrait, paysage, auto) vaut pour la page telle qu'elle s'affiche : une photo
+ * paysage pivotée d'un quart de tour remplit une page portrait (page dessinée en paysage, puis pivotée).
+ */
+function imagePageSize(info, layout, rotate = 0) {
+  const turned = norm(rotate) % 180 !== 0;
   const iw = info.displayWidth;
   const ih = info.displayHeight;
-  const landscapeImage = iw > ih;
   if (!layout.size || layout.size === 'fit') {
     // Même proportions que l'image, grand côté = grand côté d'un A4 (marges ajoutées autour)
     const m = (layout.margin || 0) * MM;
@@ -219,8 +225,11 @@ function imagePageSize(info, layout) {
     return [iw * s + 2 * m, ih * s + 2 * m];
   }
   const [a, b] = PAGE_SIZES[layout.size] || PAGE_SIZES.A4;
+  // Image telle qu'elle apparaîtra, rotation comprise
+  const landscapeImage = turned ? ih > iw : iw > ih;
   const landscape = layout.orientation === 'landscape' || (layout.orientation !== 'portrait' && landscapeImage);
-  return landscape ? [b, a] : [a, b];
+  const [vw, vh] = landscape ? [b, a] : [a, b];
+  return turned ? [vh, vw] : [vw, vh];
 }
 
 /** Dessine une image centrée dans un rectangle (proportions gardées), orientation EXIF appliquée. */
@@ -299,6 +308,8 @@ async function buildPdf(items, getSource, options = {}) {
     }
   }
 
+  // Taille AFFICHÉE (rotation comprise) de la dernière page : une page blanche insérée après une page
+  // paysage (ou pivotée) a le même aspect à l'écran
   let lastSize = PAGE_SIZES.A4;
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
@@ -306,17 +317,17 @@ async function buildPdf(items, getSource, options = {}) {
       const page = copied.get(`${it.src}:${rounds[i]}`).shift();
       if (it.rotate) page.setRotation(degrees(norm(page.getRotation().angle + it.rotate)));
       out.addPage(page);
-      const box = page.getCropBox();
-      lastSize = [box.width, box.height];
+      const v = visualSize(page);
+      lastSize = [v.width, v.height];
     } else if (it.type === 'image') {
       const { embedded, info } = await imageOf(it.src);
       const layout = it.layout || {};
-      const [pw, ph] = imagePageSize(info, layout);
+      const [pw, ph] = imagePageSize(info, layout, it.rotate);
       const page = out.addPage([pw, ph]);
       const m = (layout.margin || 0) * MM;
       drawImageIn(page, embedded, info, { x: m, y: m, width: pw - 2 * m, height: ph - 2 * m });
       if (it.rotate) page.setRotation(degrees(norm(it.rotate)));
-      lastSize = [pw, ph];
+      lastSize = norm(it.rotate || 0) % 180 ? [ph, pw] : [pw, ph];
     } else if (it.type === 'blank') {
       const w = Number(it.width) > 0 ? Number(it.width) : lastSize[0];
       const h = Number(it.height) > 0 ? Number(it.height) : lastSize[1];
@@ -373,25 +384,44 @@ async function createRasterJob() {
   };
 }
 
-/** Réécriture sans perte : pages recopiées dans un document neuf (objets orphelins retirés), flux d'objets. */
-async function optimizePdf(bytes) {
-  const src = await loadPdf(bytes);
-  const out = await PDFDocument.create();
-  const pages = await out.copyPages(src, src.getPageIndices());
-  pages.forEach((p) => out.addPage(p));
-  for (const [get, set] of [
-    ['getTitle', 'setTitle'],
-    ['getAuthor', 'setAuthor'],
-    ['getSubject', 'setSubject'],
-    ['getCreator', 'setCreator'],
-  ]) {
-    const v = safeGet(() => src[get]());
-    if (v) out[set](v);
+/**
+ * Retire du document les objets que plus rien n'utilise (anciennes versions, ressources orphelines) :
+ * seuls restent ceux qu'on atteint depuis le catalogue (/Root) et les propriétés (/Info).
+ */
+function dropUnreachable(doc) {
+  const ctx = doc.context;
+  const reached = new Set();
+  const stack = [ctx.trailerInfo.Root, ctx.trailerInfo.Info].filter(Boolean);
+  while (stack.length) {
+    const obj = stack.pop();
+    if (obj instanceof PDFRef) {
+      if (reached.has(obj.tag)) continue;
+      reached.add(obj.tag);
+      const target = ctx.lookup(obj);
+      if (target) stack.push(target);
+    } else if (obj instanceof PDFDict) {
+      stack.push(...obj.values());
+    } else if (obj instanceof PDFArray) {
+      stack.push(...obj.asArray());
+    } else if (obj instanceof PDFStream) {
+      stack.push(obj.dict);
+    }
   }
-  const kw = safeGet(() => src.getKeywords());
-  if (kw) out.setKeywords([kw]);
-  out.setProducer('PredF (pdf-lib)');
-  return out.save({ useObjectStreams: true });
+  for (const [ref] of ctx.enumerateIndirectObjects()) {
+    if (!reached.has(ref.tag)) ctx.delete(ref);
+  }
+}
+
+/**
+ * Réécriture sans perte : le document est réenregistré tel quel (signets, formulaires, destinations nommées,
+ * numérotation des pages, calques, métadonnées XMP conservés), sans les objets orphelins, en flux d'objets.
+ */
+async function optimizePdf(bytes) {
+  const doc = await loadPdf(bytes);
+  doc.setProducer('PredF (pdf-lib)');
+  dropUnreachable(doc);
+  // Apparences des champs gardées telles quelles : rien ne doit changer à l'écran
+  return doc.save({ useObjectStreams: true, updateFieldAppearances: false });
 }
 
 // ---------------------------------------------------------------------------

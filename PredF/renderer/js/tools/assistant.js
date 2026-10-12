@@ -297,10 +297,12 @@ export function create() {
       renderThumb(f.id, 0, thumb, { width: 30 }).catch(() => thumb.classList.add('failed'));
     } else {
       thumb = h('img', { class: 'chip-thumb', alt: '' });
-      imageUrl(f.id).then((url) => {
-        thumb.src = url;
-        thumb.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
-      });
+      imageUrl(f.id)
+        .then((url) => {
+          thumb.src = url;
+          thumb.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
+        })
+        .catch(() => thumb.classList.add('failed')); // fichier refermé entre-temps
     }
     return h(
       'li',

@@ -34,7 +34,7 @@ npm start
 3. **Baux DHCP** : passerelle (première, dernière, autre adresse, aucune), adresses réservées au début / à la fin (serveurs, imprimantes), exclusions (`192.168.1.50`, `192.168.1.100-120`, `192.168.1.100-192.168.1.120`, une par ligne, `#` pour commenter). Le résultat **« Baux DHCP maximum »** est le nombre d'adresses réellement distribuables. Le champ **« Nombre de baux souhaité »** arrête la plage (et la liste exportée) à ce nombre ; s'il dépasse ce que le réseau permet, le manque est signalé.
 4. **Export** :
    - **Liste (.txt)** : les baux DHCP disponibles ou toutes les adresses utilisables, une par ligne (option : lignes numérotées), précédées d'un résumé. Encodage UTF-8 avec BOM et fins de ligne Windows (lisible dans le Bloc-notes).
-   - Écriture par blocs avec progression et **annulation** (le fichier incomplet est supprimé). Un /8 complet (16 777 213 baux, ~235 Mo) s'écrit en ~2 s ; au-delà de 50 Mo, un second clic confirme. Limite : un /8 (16 777 216 adresses).
+   - Écriture par blocs avec progression et **annulation**. Le fichier est écrit à côté de la cible (`….txt.calkip.part`) puis renommé à la fin : en cas d'annulation, d'erreur (fichier ouvert dans Excel, protégé en écriture) ou de fermeture de l'application, seul ce fichier temporaire est supprimé et un fichier existant que l'on devait remplacer reste intact. Un seul export à la fois. Un /8 complet (16 777 213 baux, ~235 Mo) s'écrit en ~2 s ; au-delà de 50 Mo, un second clic confirme. Limite : un /8 (16 777 216 adresses).
    - **Résumé (.txt)** et **Copier le résumé** (presse-papiers).
    - Raccourci **Ctrl + S** : exporter la liste.
 5. **Autres informations** : type d'adresse (privée RFC 1918, publique, CGNAT, APIPA, loopback, multicast, documentation, réservée), classe, masque générique (wildcard), diffusion, zone DNS inverse, réseaux précédent / suivant (cliquables), représentation binaire (bits réseau / hôtes) et hexadécimale, position de l'adresse dans le réseau (avertit si c'est l'adresse réseau ou de diffusion).
@@ -71,7 +71,8 @@ CalkIP/
 ├── preload.js          # pont contextBridge minimal (window.calkip)
 ├── lib/ipcalc.js       # tous les calculs IPv4 (sans dépendance, partagés page / processus principal)
 ├── lib/binary.js       # calcul binaire : conversions, explication pas à pas, exercices
-├── test/               # tests (node:test) : ipcalc.test.js, binary.test.js
+├── lib/export.js       # exports (processus principal) : calcul refait, écriture sûre via fichier temporaire
+├── test/               # tests (node:test) : ipcalc.test.js, binary.test.js, export.test.js
 ├── build/icon.png      # icône de l'application
 └── renderer/
     ├── index.html      # page (CSP stricte, hors ligne)

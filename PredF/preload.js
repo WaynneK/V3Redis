@@ -23,7 +23,12 @@ contextBridge.exposeInMainWorld('predf', {
       return '';
     }
   },
-  bytes: invoke('files:bytes'),
+  /** Octets d'un fichier ouvert ; fichier inconnu (déjà fermé) : erreur, et non un tableau vide. */
+  bytes: async (id) => {
+    const res = await ipcRenderer.invoke('files:bytes', id);
+    if (!ArrayBuffer.isView(res)) throw new Error((res && res.error) || 'Fichier introuvable : rouvrez-le.');
+    return res;
+  },
   release: invoke('files:release'),
   replaceImage: invoke('files:replaceImage'),
   pendingOpen: invoke('app:pendingOpen'),

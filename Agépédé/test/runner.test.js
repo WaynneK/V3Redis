@@ -36,16 +36,25 @@ test('runSteps refuse de fonctionner hors Windows', async () => {
   await assert.rejects(() => R.runSteps(sampleSteps(), { platform: 'linux', run: async () => ({ exitCode: 0 }) }), /que sous Windows/);
 });
 
-test('runSteps simulation : aucune commande de création lancée, seulement les tests', async () => {
+test('runSteps simulation : aucune commande de création lancée, seulement les tests et recherches', async () => {
   const steps = sampleSteps();
   const ouDn = steps[0].dn;
-  const f = fakeRun((line) => (line.includes(`"${ouDn}" -scope base`) ? { stdout: `"${ouDn}"\r\n`, output: `"${ouDn}"\r\n` } : { exitCode: 1 }));
+  const lookup = steps.find((s) => s.member && s.member.lookup);
+  const found = `"CN=Jean Dupont,CN=Users,DC=lab,DC=local"\r\n`;
+  const f = fakeRun((line) => {
+    if (line.includes(`"${ouDn}" -scope base`)) return { stdout: `"${ouDn}"\r\n`, output: `"${ouDn}"\r\n` };
+    if (line === lookup.member.query) return { stdout: found, output: found };
+    return { exitCode: 1 };
+  });
   const events = [];
   const sum = await R.runSteps(steps, { dryRun: true, run: f.run, platform: 'win32', onStep: (e) => events.push(e) });
-  for (const line of f.calls) assert.ok(isCheck(steps, line), `ligne non autorisée en simulation : ${line}`);
+  const readOnly = (line) => isCheck(steps, line) || steps.some((s) => s.member && s.member.query === line);
+  for (const line of f.calls) assert.ok(readOnly(line), `ligne non autorisée en simulation : ${line}`);
   assert.ok(!f.calls.some((l) => steps.some((s) => s.command === l)));
-  assert.equal(f.calls.length, steps.filter((s) => s.check).length);
+  assert.ok(!f.calls.some((l) => /\bdsmod\b|\bdsadd\b|\bicacls\b|\bmkdir\b/.test(l)));
+  assert.equal(f.calls.length, steps.filter((s) => s.check).length + 1);
   assert.equal(events[0].status, 'exists');
+  assert.equal(events.find((e) => e.step === lookup).status, 'todo');
   assert.equal(events.find((e) => e.step.kind === 'acl').status, 'unknown');
   assert.deepEqual(sum, { total: steps.length, ok: 0, exists: 1, errors: 0, skipped: 0, cancelled: 0, todo: steps.length - 2, unknown: 1 });
 });
@@ -348,4 +357,90 @@ test('runSteps simulation : héritage cassé non vérifiable à l\'avance', asyn
   const events = [];
   await R.runSteps(steps, { dryRun: true, run: fakeRun(() => ({ exitCode: 1 })).run, platform: 'win32', onStep: (e) => events.push(e) });
   assert.deepEqual(events.map((e) => [e.step.kind, e.status]), [['folder', 'todo'], ['inherit', 'unknown']]);
+});
+
+// --- Correctifs ----------------------------------------------------------------
+
+test('garde-fou : une étape au DN suspect bloque tout, simulation comprise (rien n\'est lancé)', async () => {
+  const bad = 'OU=Paris,DC=lab,DC=local" & whoami & "';
+  const evil = [{ id: 'ou-1', kind: 'ou', label: 'x', dn: bad, command: `dsadd ou "${bad}"`, check: `dsquery * "${bad}" -scope base 2>nul | findstr "="`, needs: [] }];
+  for (const dryRun of [true, false]) {
+    const f = fakeRun(() => ({ exitCode: 1 }));
+    await assert.rejects(() => R.runSteps(sampleSteps().concat(evil), { dryRun, run: f.run, platform: 'win32' }), /Exécution refusée/);
+    assert.deepEqual(f.calls, [], 'aucune ligne envoyée à cmd.exe');
+  }
+  assert.match(R.unsafeStep({ kind: 'ou', dn: 'OU=a,DC=%x%' }), /DN refusé/);
+  assert.match(R.unsafeStep({ kind: 'member', dn: 'CN=G', member: { dn: 'CN=a"b' } }), /DN refusé/);
+  assert.match(R.unsafeStep({ kind: 'acl', dn: null, command: 'icacls "D:\\a /grant x' }), /guillemets non appariés/);
+  assert.match(R.unsafeStep({ kind: 'acl', dn: null, command: 'icacls "D:\\a"\r\nwhoami' }), /plusieurs lignes/);
+  // Toutes les étapes produites par plan() passent le garde-fou (lignes de recherche, filtres, dossiers…)
+  const full = A.plan({
+    domain: { dns: 'lab.local', netbios: 'LAB' },
+    options: { createFolders: true, defaultPassword: 'Az&r|ty <9>!^' },
+    ous: [{ name: 'Ventes, Export', description: 'Partage D:\\Ventes\\' }],
+    users: [{ login: 'jdupont', firstName: 'Jean', lastName: 'Dupont (RH)', ou: 'Ventes, Export' }],
+    globals: [{ name: 'GG Ventes', ou: 'Ventes, Export', description: 'a & b | c', members: 'jdupont, autre compte' }],
+    locals: [{ name: 'DL_Ventes', members: 'GG Ventes, Utilisateurs du domaine' }],
+    folders: [{ path: 'D:\\Données (2026)\\Ventes', inheritance: 'break' }],
+    permissions: [{ path: 'D:\\Données (2026)\\Ventes', group: 'DL_Ventes', right: 'RW' }],
+  });
+  assert.ok(full.length > 8);
+  for (const s of full) assert.equal(R.unsafeStep(s), null, s.command);
+});
+
+test('délais : pas de délai pour icacls / mkdir (droits, héritage, dossiers), délai par défaut pour le reste', async () => {
+  const steps = A.plan({
+    domain: { dns: 'lab.local', netbios: 'LAB' },
+    ous: [{ id: 'o1', name: 'Paris' }],
+    folders: [{ id: 'f1', path: 'D:\\Partages', inheritance: 'break' }],
+    permissions: [{ id: 'p1', path: 'D:\\Partages', group: 'DL_Existant', right: 'R' }],
+  });
+  const seen = [];
+  const run = async (line, opts) => {
+    seen.push([line, opts]);
+    return { exitCode: /findstr "="$|^if exist/.test(line) ? 1 : 0, output: '', stdout: '' };
+  };
+  await R.runSteps(steps, { run, platform: 'win32' });
+  const optsOf = (step) => seen.find(([l]) => l === step.command)[1];
+  for (const s of steps) {
+    const o = optsOf(s);
+    if (['acl', 'inherit', 'folder'].includes(s.kind)) assert.equal(o.timeoutMs, 0, s.kind);
+    else assert.equal(o.timeoutMs, undefined, s.kind);
+    assert.ok('signal' in o);
+  }
+  // Les tests d'existence gardent le délai par défaut
+  for (const [l, o] of seen) if (steps.some((s) => s.check === l)) assert.equal(o.timeoutMs, undefined);
+  assert.equal(R.timeoutFor({ kind: 'acl' }), 0);
+  assert.equal(R.timeoutFor({ kind: 'user' }), undefined);
+  // runCommand : 0 = aucun minuteur (le faux processus ne se termine jamais seul ; annulation par le signal)
+  const ctrl = new AbortController();
+  const child = new EventEmitter();
+  child.pid = 1;
+  const spawn = (file) => (file === 'taskkill' ? { on() {} } : child);
+  const p = R.runCommand('icacls "D:\\Partages" /grant x', { spawn, timeoutMs: 0, signal: ctrl.signal });
+  await new Promise((r) => setTimeout(r, 30));
+  ctrl.abort();
+  const r = await p;
+  assert.equal(r.timedOut, false);
+  assert.equal(r.aborted, true);
+});
+
+test('simulation : membre recherché (lecture seule) et signalé introuvable, sans dsmod', async () => {
+  const steps = A.plan({
+    domain: { dns: 'lab.local', netbios: 'LAB' },
+    globals: [{ id: 'g1', name: 'GG_A', ou: '', description: '', members: 'present, absent' }],
+  });
+  const f = fakeRun((line) => {
+    if (/^dsquery user -samid present /.test(line)) return { stdout: '"CN=Présent,CN=Users,DC=lab,DC=local"\r\n', output: '' };
+    return { exitCode: 1, stdout: '' };
+  });
+  const events = [];
+  const sum = await R.runSteps(steps, { dryRun: true, run: f.run, platform: 'win32', onStep: (e) => events.push(e) });
+  const by = (name) => events.find((e) => e.step.member && e.step.member.name === name);
+  assert.equal(by('present').status, 'todo');
+  assert.equal(by('absent').status, 'error');
+  assert.match(by('absent').message, /Introuvable dans l'Active Directory : absent/);
+  assert.ok(!f.calls.some((l) => /\bdsmod\b|\bdsadd\b/.test(l)), 'lecture seule');
+  assert.ok(f.calls.includes('dsquery user -samid absent -limit 1'));
+  assert.equal(sum.errors, 1);
 });

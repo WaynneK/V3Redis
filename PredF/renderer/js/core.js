@@ -316,6 +316,7 @@ export async function prepareFiles(files, accept) {
         ok.push(await convertImage(f));
       } catch (err) {
         refused.push(`${f.name} : ${err.message}`);
+        api.release([f.id]); // le fichier reste sinon en mémoire dans le processus principal
       }
       continue;
     }

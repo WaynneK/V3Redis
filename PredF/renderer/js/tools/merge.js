@@ -5,7 +5,7 @@
 
 import { api, h, icon, button, segmented, plural, baseName, toast, check, showResult, withBusy, sortable, moveItems, imageUrl, pickFiles, formatBytes as formatSize } from '../core.js';
 import { dropZone, docSummary, actionBar, optionGroup, pagesField } from '../components.js';
-import { renderThumb } from '../pdfview.js';
+import { renderThumb, forget } from '../pdfview.js';
 
 export function create() {
   const state = {
@@ -31,6 +31,8 @@ export function create() {
     const gone = state.entries.filter((e) => set.has(e.key));
     state.entries = state.entries.filter((e) => !set.has(e.key));
     api.release(gone.map((e) => e.file.id));
+    // Documents pdf.js des miniatures fermés aussi
+    for (const e of gone) if (e.file.kind === 'pdf') forget(e.file.id);
     render();
   }
 
@@ -46,10 +48,12 @@ export function create() {
       renderThumb(file.id, 0, thumb, { width: 44 }).catch(() => thumb.classList.add('failed'));
     } else {
       thumb = h('img', { class: 'row-thumb', alt: '', draggable: 'false' });
-      imageUrl(file.id).then((url) => {
-        thumb.src = url;
-        thumb.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
-      });
+      imageUrl(file.id)
+        .then((url) => {
+          thumb.src = url;
+          thumb.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
+        })
+        .catch(() => thumb.classList.add('failed')); // fichier refermé entre-temps
     }
     let pagesCell;
     if (file.kind === 'pdf') {

@@ -1,22 +1,16 @@
 /*
- * content.js — Contenu des cours : les parties, leurs chapitres et les résumés.
+ * content.js — Les parties de Cours et les informations des résumés PDF.
  *
- * C'est le SEUL fichier à modifier pour écrire un résumé (l'interface le lit tel quel).
+ * Ajouter un résumé = DÉPOSER LE PDF dans le dossier de sa partie : pdfs/<id de la partie>/
+ *   (ex. pdfs/m-julia/01 - Adressage IP.pdf). Il apparaît tout seul dans l'application, rangé par nom de fichier
+ *   (un numéro en tête permet de choisir l'ordre).
+ * Titre affiché : celui donné ci-dessous, sinon le nom du fichier (sans numéro ni extension :
+ *   « 01 - Adressage IP.pdf » → « Adressage IP »).
+ * Description : celle donnée ci-dessous, sinon le sujet enregistré dans le PDF.
+ * Auteur (panneau « Informations ») : celui donné ci-dessous, sinon l'auteur enregistré dans le PDF.
  *
- * Partie  : { id, name, initials, description, topics: [mots-clés affichés], accent: '#rrggbb', chapters: [...] }
- * Chapitre : {
- *   id, title, subtitle?,           identifiant unique dans la partie (lettres, chiffres, tirets)
- *   keyPoints?: ['…'],              « Points clés » en tête du résumé
- *   sections?: [{ title, blocks }]  le résumé ; sans sections, le chapitre s'affiche « Résumé à venir »
- * }
- * Blocs d'une section (texte enrichi possible : **gras**, `code`) :
- *   { p: 'paragraphe' }
- *   { list: ['élément', …] }                        liste à puces
- *   { steps: ['étape', …] }                         liste numérotée
- *   { table: { head: ['A', 'B'], rows: [['1', '2'], …] } }
- *   { code: 'texte affiché tel quel (commandes)' }
- *   { note: 'encadré « À retenir »' }
- *   { warn: 'encadré « Attention »' }
+ * Partie : { id, name, initials, logo?: 'microsoft', description, topics: [thèmes affichés], accent: '#rrggbb',
+ *            documents?: [{ file: 'nom du fichier.pdf', title?, description?, author? }] }
  */
 (function (root, factory) {
   const data = factory();
@@ -26,7 +20,7 @@
   'use strict';
 
   return {
-    version: 1,
+    version: 2,
     parts: [
       {
         id: 'm-julia',
@@ -35,10 +29,8 @@
         description: 'IP, Windows Server, Connexion',
         topics: ['IP', 'Windows Server', 'Connexion'],
         accent: '#38bdf8',
-        chapters: [
-          { id: 'ip', title: 'IP' },
-          { id: 'windows-server', title: 'Windows Server' },
-          { id: 'connexion', title: 'Connexion' },
+        documents: [
+          // { file: '01 - Adressage IP.pdf', title: 'Adressage IP', description: 'IPv4, masques, sous-réseaux.' },
         ],
       },
       {
@@ -48,13 +40,17 @@
         description: 'Hardware : carte mère, CPU, GPU…',
         topics: ['Carte mère', 'CPU', 'GPU', 'RAM', 'Stockage'],
         accent: '#a78bfa',
-        chapters: [
-          { id: 'carte-mere', title: 'Carte mère' },
-          { id: 'cpu', title: 'CPU', subtitle: 'Processeur' },
-          { id: 'gpu', title: 'GPU', subtitle: 'Carte graphique' },
-          { id: 'ram', title: 'RAM', subtitle: 'Mémoire vive' },
-          { id: 'stockage', title: 'Stockage', subtitle: 'Disques durs et SSD' },
-        ],
+        documents: [],
+      },
+      {
+        id: 'office',
+        name: 'Microsoft Office',
+        initials: 'MO',
+        logo: 'microsoft', // logo à la place des initiales (pastille de la barre, en-tête de la partie)
+        description: 'Word, Excel, PowerPoint, Outlook',
+        topics: ['Word', 'Excel', 'PowerPoint', 'Outlook'],
+        accent: '#f97316',
+        documents: [],
       },
     ],
   };

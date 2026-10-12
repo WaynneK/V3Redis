@@ -67,27 +67,16 @@ function createManager(options) {
     const res = await net.fetch(url, { signal });
     if (!res.ok || !res.body) throw new Error(res.status === 404 ? 'paquet introuvable dans la release' : `téléchargement refusé (erreur ${res.status})`);
     const hash = crypto.createHash('sha512');
-    const out = fs.createWriteStream(file);
-    const reader = res.body.getReader();
-    let received = 0;
     let lastSent = 0;
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        received += value.length;
-        if (received > size) throw new Error('paquet plus gros que prévu');
-        hash.update(value);
-        if (!out.write(value)) await new Promise((r) => out.once('drain', r));
-        const now = Date.now();
-        if (now - lastSent > 200) {
-          lastSent = now;
-          onProgress({ phase: 'download', received, total: size });
-        }
+    // Erreur d'écriture ou de lecture : téléchargement arrêté, fichier fermé, erreur renvoyée (app-packs.js)
+    const received = await Packs.pipeToFile(res.body.getReader(), fs.createWriteStream(file), size, (chunk, got) => {
+      hash.update(chunk);
+      const now = Date.now();
+      if (now - lastSent > 200) {
+        lastSent = now;
+        onProgress({ phase: 'download', received: got, total: size });
       }
-    } finally {
-      await new Promise((r) => out.end(r));
-    }
+    });
     onProgress({ phase: 'download', received, total: size });
     return { received, sha512: hash.digest('base64') };
   }
@@ -173,10 +162,15 @@ function createManager(options) {
       return { ok: true, version: pack.version };
     } catch (err) {
       const cancelled = controller.signal.aborted;
-      report({ phase: cancelled ? 'cancelled' : 'error' });
-      if (cancelled) return { ok: false, cancelled: true, error: 'Installation annulée.' };
+      if (cancelled) {
+        report({ phase: 'cancelled' });
+        return { ok: false, cancelled: true, error: 'Installation annulée.' };
+      }
       const why = String(err && err.message ? err.message : err).replace(/\.+$/, '');
-      return { ok: false, error: `Installation de ${entry.name} impossible : ${why.charAt(0).toLowerCase()}${why.slice(1)}.` };
+      const error = `Installation de ${entry.name} impossible : ${why.charAt(0).toLowerCase()}${why.slice(1)}.`;
+      // Message joint à l'avancement : une fenêtre qui n'a pas lancé l'installation (mode changé) peut l'afficher
+      report({ phase: 'error', error });
+      return { ok: false, error };
     } finally {
       if (poll) clearInterval(poll);
       current = null;

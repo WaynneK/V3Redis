@@ -80,6 +80,16 @@
     ],
   };
 
+  /** Suffixe des fichiers CSV exportés, par tableau (un par entrée de TABLES). */
+  const TABLE_FILE_NAMES = {
+    ous: 'OU',
+    users: 'Utilisateurs',
+    globals: 'Groupes-globaux',
+    locals: 'Groupes-domaine-local',
+    folders: 'Dossiers',
+    permissions: 'Permissions',
+  };
+
   /** Limites (voir docs/COMMANDES.md). */
   const LIMITS = {
     ou: 64, // longueur maximale d'un nom d'OU (KB 909264)
@@ -130,6 +140,14 @@
   function arg(value) {
     const s = str(value);
     return /^[\p{L}\p{N}_.-]+$/u.test(s) ? s : `"${s}"`;
+  }
+
+  /**
+   * Valeur toujours entre guillemets (descriptions). Les « \ » finaux sont doublés : dsadd, comme tout
+   * programme Windows, lit « \" » comme un guillemet littéral, et « D:\Compta\" » avalerait la suite de la ligne.
+   */
+  function quoted(value) {
+    return '"' + str(value).replace(/(\\+)$/, '$1$1') + '"';
   }
 
   function firstChar(list, s) {
@@ -237,13 +255,13 @@
     return str(d.dn).trim() || domainToDn(d.dns);
   }
 
-  /** Nom NetBIOS pour icacls : saisi, sinon première étiquette du nom DNS en majuscules. */
+  /** Nom NetBIOS pour icacls : saisi, sinon première étiquette du nom DNS en majuscules (15 caractères au plus). */
   function netbiosOf(domain) {
     const d = domain || {};
     const n = str(d.netbios).trim();
     if (n) return n;
     const first = (str(d.dns).trim() || dnToDomain(d.dn)).split('.')[0] || '';
-    return first.toUpperCase();
+    return first.toUpperCase().slice(0, 15);
   }
 
   // ---------------------------------------------------------------------------
@@ -252,15 +270,14 @@
 
   /**
    * « jdupont, mmartin; pdurand » → ['jdupont', 'mmartin', 'pdurand'] (sans doublons, casse et
-   * accents ignorés). Séparateurs : , ; tabulation et retour à la ligne. L'espace ne sépare que si
-   * aucun de ces séparateurs n'est utilisé (« jdupont mmartin ») : on peut ainsi citer un groupe
-   * existant dont le nom contient des espaces (« Utilisateurs du domaine, GG_Compta »).
+   * accents ignorés). Séparateurs : , ; tabulation et retour à la ligne. L'espace ne sépare jamais :
+   * un nom de groupe existant peut en contenir (« Utilisateurs du domaine » est UN seul membre).
    */
   function splitMembers(text) {
     const list = Array.isArray(text) ? text.map(str).join('\n') : str(text);
     const out = [];
     const seen = new Set();
-    const tokens = /[,;\t\r\n]/.test(list.trim()) ? list.split(/[,;\t\r\n]+/) : list.split(/\s+/);
+    const tokens = list.split(/[,;\t\r\n]+/);
     for (const raw of tokens) {
       const name = raw.trim().replace(/\s+/g, ' ');
       if (!name) continue;
@@ -303,6 +320,8 @@
   /**
    * Vérifie un mot de passe avant de l'écrire dans une ligne de commande (entre guillemets) :
    * " et % cassent la ligne ; les autres caractères spéciaux sont sans effet entre guillemets.
+   * Un « \ » final serait collé au guillemet fermant (« \" » = guillemet littéral) et « * » seul
+   * fait demander le mot de passe par dsadd (l'exécution resterait bloquée) : refusés aussi.
    */
   function validatePassword(pwd) {
     const s = str(pwd);
@@ -311,6 +330,8 @@
     if (/[\u0000-\u001f\u007f]/.test(s)) return 'Le mot de passe contient un caractère de contrôle.';
     const bad = firstChar(['"', '%'], s);
     if (bad) return `Le mot de passe contient ${showChar(bad)} : ce caractère casse la ligne de commande.`;
+    if (s.endsWith('\\')) return 'Le mot de passe se termine par « \\ » : juste avant le guillemet fermant, ce caractère casse la ligne de commande.';
+    if (s === '*') return 'Le mot de passe « * » est réservé : dsadd demanderait alors le mot de passe au clavier.';
     if (s.length > LIMITS.password) return `Le mot de passe dépasse ${LIMITS.password} caractères.`;
     return null;
   }
@@ -345,6 +366,7 @@
     if (/[\u0000-\u001f\u007f]/.test(s)) return `${what} contient un retour à la ligne ou un caractère de contrôle.`;
 
     if (kind === 'desc') {
+      // Un « \ » final est accepté (« Partage D:\Compta\ ») : quoted() le double dans la commande.
       const bad = firstChar(['"', '%', '!'], s);
       if (bad) return `${what} contient ${showChar(bad)} : ce caractère casse la ligne de commande.`;
       if (s.length > LIMITS.description) return `${what} dépasse ${LIMITS.description} caractères.`;
@@ -357,6 +379,8 @@
     if (cmdBad) return `${what} « ${s} » contient ${showChar(cmdBad)} : ce caractère est interprété par l'invite de commandes (cmd.exe).`;
 
     if (kind === 'person') {
+      // « Dupont\ » donnerait -ln "Dupont\" : le « \" » final serait lu comme un guillemet littéral
+      if (s.endsWith('\\')) return `${what} « ${s} » se termine par « \\ » : ce caractère, juste avant le guillemet fermant, casse la ligne de commande.`;
       if (s.length > LIMITS.cn) return `${what} « ${s} » dépasse ${LIMITS.cn} caractères.`;
       return null;
     }
@@ -402,6 +426,14 @@
     return s;
   }
 
+  /**
+   * Clé de comparaison d'un dossier : casse ignorée (comme Windows) mais PAS les accents :
+   * NTFS distingue « D:\Données » et « D:\Donnees » (deux dossiers différents).
+   */
+  function pathKey(p) {
+    return cleanPath(p).toLowerCase();
+  }
+
   /** Avertissements sur un nom valide (compatibilité, conventions). */
   function nameWarnings(kind, name) {
     const s = str(name);
@@ -430,13 +462,13 @@
       }
     }
     if (dn) {
-      const parts = splitDn(dn);
-      if (!parts.length || parts.some((p) => !/^dc\s*=\s*[^=]+$/i.test(p))) {
-        push('dn', `DN du domaine « ${dn} » invalide : forme attendue DC=lab,DC=local.`);
+      // Le DN est recopié tel quel dans TOUTES les commandes : chaque composant est contrôlé strictement
+      // (DC=étiquette DNS), quel que soit le nom DNS. Un « " », « & » ou « % » ne doit jamais passer.
+      const parts = dn.split(',').map((p) => p.trim());
+      if (!parts.length || parts.some((p) => !/^dc=[a-z0-9-]+$/i.test(p))) {
+        push('dn', `DN du domaine « ${dn} » invalide : forme attendue DC=lab,DC=local (lettres, chiffres et tirets uniquement).`);
       } else if (dns && nameKey(dnToDomain(dn)) !== nameKey(dns.replace(/\.$/, ''))) {
         push('dn', `Le DN « ${dn} » ne correspond pas au domaine « ${dns} » : c'est le DN qui sera utilisé.`, 'warnings');
-      } else if (firstChar(CMD_FORBIDDEN, dn)) {
-        push('dn', `Le DN « ${dn} » contient un caractère interdit.`);
       }
     }
     if (nb) {
@@ -502,7 +534,10 @@
 
     // --- Utilisateurs (A) -------------------------------------------------
     const users = new Map(); // clé de l'identifiant → ligne
-    const userDns = new Set();
+    // DN des utilisateurs puis des groupes (nom affiché ou nom du groupe | chemin d'OU) : un groupe et un
+    // utilisateur de même nom dans la même OU auraient le même DN, le second ne pourrait pas être créé.
+    const objectDns = new Map(); // clé du DN → 'user' | 'group'
+    const dnKeyOf = (cn, ou) => nameKey(cn) + '|' + nameKey(ouSegments(ou).join('/'));
     const defaultPwd = str(p.options.defaultPassword);
     if (defaultPwd && p.users.some((r) => str(r.password) === '')) {
       const de = validatePassword(defaultPwd);
@@ -545,9 +580,9 @@
       }
       // Même nom affiché dans la même OU : même DN, le second compte ne pourrait pas être créé
       if (!e && !personError) {
-        const dnKey = nameKey(display) + '|' + nameKey(ouSegments(row.ou).join('/'));
-        if (userDns.has(dnKey)) err('users', row.id, 'lastName', `Un autre utilisateur du tableau s'appelle déjà « ${display} » dans cette OU : ajoutez une initiale ou changez d'OU.`);
-        userDns.add(dnKey);
+        const dnKey = dnKeyOf(display, row.ou);
+        if (objectDns.has(dnKey)) err('users', row.id, 'lastName', `Un autre utilisateur du tableau s'appelle déjà « ${display} » dans cette OU : ajoutez une initiale ou changez d'OU.`);
+        objectDns.set(dnKey, 'user');
       }
     }
     const isUser = (name) => users.has(nameKey(name));
@@ -570,6 +605,10 @@
         } else groups.set(key, { scope, row });
         // Utilisateurs et groupes partagent le même espace de noms (sAMAccountName)
         if (isUser(row.name)) err(table, row.id, 'name', `« ${row.name} » est aussi l'identifiant d'un utilisateur du tableau : un groupe et un compte ne peuvent pas porter le même nom.`);
+        // … et le même conteneur : même nom affiché qu'un utilisateur de la même OU = même DN
+        else if (objectDns.get(dnKeyOf(row.name, row.ou)) === 'user') {
+          err(table, row.id, 'name', `Un utilisateur du tableau s'affiche déjà « ${row.name} » dans cette OU : le groupe aurait le même DN (CN=${row.name}). Renommez le groupe ou changez d'OU.`);
+        }
       }
       checkOuCell(table, row);
       const de = validateName('desc', row.description);
@@ -581,6 +620,14 @@
       const g = groups.get(nameKey(name));
       return g ? g.scope : null;
     };
+    // « jdupont mmartin » : l'espace ne sépare pas les membres (il fait partie du nom, ex. « Utilisateurs du
+    // domaine »). Si chaque mot est un compte ou un groupe du tableau, c'est sûrement une liste mal séparée.
+    const spaceSeparated = (table, row, m) => {
+      const words = m.split(' ');
+      if (words.length < 2 || !words.every((w) => isUser(w) || groups.has(nameKey(w)))) return false;
+      err(table, row.id, 'members', `« ${m} » est lu comme UN seul nom : séparez les membres par des virgules (${words.join(', ')}).`);
+      return true;
+    };
 
     // Membres des groupes globaux : des comptes utilisateurs (A → G).
     const inSomeDl = new Set();
@@ -591,6 +638,7 @@
           err('globals', row.id, 'members', `Le groupe « ${row.name} » ne peut pas être membre de lui-même.`);
           continue;
         }
+        if (spaceSeparated('globals', row, m)) continue;
         const scope = scopeOf(m);
         if (scope === 'local') {
           err('globals', row.id, 'members', `« ${m} » est un groupe domaine local : un groupe global ne peut pas contenir de groupe domaine local (règle Active Directory, contraire à AGDLP).`);
@@ -623,6 +671,7 @@
           err('locals', row.id, 'members', `Le groupe « ${row.name} » ne peut pas être membre de lui-même.`);
           continue;
         }
+        if (spaceSeparated('locals', row, m)) continue;
         const e = validateName('group', m);
         if (e) {
           err('locals', row.id, 'members', e);
@@ -687,7 +736,7 @@
       }
       if (!RIGHTS[row.right]) err('permissions', row.id, 'right', `Droit « ${row.right} » inconnu : choisissez R (Lecture), RW (Modification) ou F (Contrôle total).`);
       if (!pe && !ge) {
-        const k = nameKey(cleanPath(row.path)) + '|' + nameKey(row.group);
+        const k = pathKey(row.path) + '|' + nameKey(row.group);
         if (permKeys.has(k)) warn('permissions', row.id, 'group', `« ${row.group} » reçoit déjà un droit sur « ${cleanPath(row.path)} » : les droits s'additionnent.`);
         permKeys.add(k);
       }
@@ -698,14 +747,14 @@
 
     // --- Dossiers ----------------------------------------------------------
     const folderKeys = new Set();
-    const permPaths = new Set(p.permissions.filter((r) => !validateName('path', r.path)).map((r) => nameKey(cleanPath(r.path))));
+    const permPaths = new Set(p.permissions.filter((r) => !validateName('path', r.path)).map((r) => pathKey(r.path)));
     for (const row of p.folders) {
       const pe = validateName('path', row.path);
       if (pe) {
         err('folders', row.id, 'path', pe);
         continue;
       }
-      const key = nameKey(cleanPath(row.path));
+      const key = pathKey(row.path);
       if (folderKeys.has(key)) {
         err('folders', row.id, 'path', `Le dossier « ${cleanPath(row.path)} » est déjà dans le tableau (doublon).`);
         continue;
@@ -755,9 +804,19 @@
   // Plan d'exécution
   // ---------------------------------------------------------------------------
 
-  /** Test d'existence lisible par cmd : code de sortie 0 et une ligne de DN si l'objet existe. */
-  function existsCheck(dn) {
-    return `dsquery * "${dn}" -scope base 2>nul | findstr "="`;
+  /** Filtres LDAP du test d'existence, par type d'objet créé. */
+  const CLASS_FILTERS = {
+    ou: '(objectClass=organizationalUnit)',
+    user: '(&(objectCategory=person)(objectClass=user))',
+    group: '(objectCategory=group)',
+  };
+
+  /**
+   * Test d'existence lisible par cmd : code de sortie 0 et une ligne de DN si l'objet existe ET est du bon
+   * type (un groupe déjà présent au DN d'un utilisateur à créer ne vaut pas « déjà fait »).
+   */
+  function existsCheck(dn, kind) {
+    return `dsquery * "${dn}" -scope base -filter "${CLASS_FILTERS[kind] || '(objectClass=*)'}" 2>nul | findstr "="`;
   }
 
   /**
@@ -828,8 +887,8 @@
         rowId: o.row.id,
         label: `Créer l'OU ${o.path}`,
         dn,
-        command: `dsadd ou "${dn}"` + (desc ? ` -desc "${desc}"` : ''),
-        check: existsCheck(dn),
+        command: `dsadd ou "${dn}"` + (desc ? ` -desc ${quoted(desc)}` : ''),
+        check: existsCheck(dn, 'ou'),
         needs: [ouStep.get(parentKey)],
       });
       ouStep.set(key, id);
@@ -866,7 +925,7 @@
         label: `Créer l'utilisateur ${row.login} (${display})`,
         dn,
         command,
-        check: existsCheck(dn),
+        check: existsCheck(dn, 'user'),
         needs: [ouNeed(row.ou)],
       });
       userInfo.set(key, { dn, stepId: id, name: row.login });
@@ -880,6 +939,7 @@
       const key = nameKey(row.name);
       if (groupInfo.has(key)) return;
       const dn = `CN=${escapeRdn(row.name)},${containerDn(row.ou, base)}`;
+      if (userDnSeen.has(nameKey(dn))) return; // même DN qu'un utilisateur du tableau (erreur de validation)
       const desc = str(row.description);
       const id = add({
         kind: 'group',
@@ -887,8 +947,8 @@
         rowId: row.id,
         label: `Créer le groupe ${scope === 'global' ? 'global' : 'domaine local'} ${row.name}`,
         dn,
-        command: `dsadd group "${dn}" -secgrp yes -scope ${scope === 'global' ? 'g' : 'l'} -samid ${arg(row.name)}` + (desc ? ` -desc "${desc}"` : ''),
-        check: existsCheck(dn),
+        command: `dsadd group "${dn}" -secgrp yes -scope ${scope === 'global' ? 'g' : 'l'} -samid ${arg(row.name)}` + (desc ? ` -desc ${quoted(desc)}` : ''),
+        check: existsCheck(dn, 'group'),
         needs: [ouNeed(row.ou)],
       });
       groupInfo.set(key, { dn, scope, stepId: id, name: row.name, rowId: row.id });
@@ -942,7 +1002,7 @@
     const perms = p.permissions.filter((r) => !validateName('path', r.path) && !validateName('group', r.group) && RIGHTS[r.right]);
     const folderStep = new Map();
     const addFolder = (path, table, rowId) => {
-      const key = nameKey(path);
+      const key = pathKey(path);
       if (folderStep.has(key)) return;
       folderStep.set(
         key,
@@ -968,7 +1028,7 @@
     // Héritage cassé : avant les droits AGDLP, qui s'ajoutent ensuite en droits explicites
     const inheritDone = new Set();
     for (const f of folders) {
-      const key = nameKey(f.path);
+      const key = pathKey(f.path);
       if (f.row.inheritance !== 'break' || inheritDone.has(key)) continue;
       inheritDone.add(key);
       let command = `icacls "${f.path}" /inheritance:d`;
@@ -997,7 +1057,7 @@
         dn: null,
         command: `icacls "${path}" /grant "${netbios}\\${groupName}:${right.icacls}"`,
         check: null,
-        needs: [g && g.stepId, folderStep.get(nameKey(path))],
+        needs: [g && g.stepId, folderStep.get(pathKey(path))],
       });
     }
     return steps;
@@ -1023,6 +1083,23 @@
     const d = date instanceof Date && !isNaN(date) ? date : new Date();
     const p2 = (x) => String(x).padStart(2, '0');
     return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  }
+
+  /**
+   * Outils nécessaires à une liste d'étapes : ds (dsadd, dsmod, dsquery) pour les OU, comptes, groupes et
+   * appartenances ; icacls pour les droits et l'héritage. Un projet « dossiers et droits » n'a pas besoin de RSAT.
+   */
+  function toolsNeeded(steps) {
+    const list = Array.isArray(steps) ? steps : [];
+    return {
+      ds: list.some((s) => s && ['ou', 'user', 'group', 'member'].includes(s.kind)),
+      icacls: list.some((s) => s && (s.kind === 'acl' || s.kind === 'inherit')),
+    };
+  }
+
+  /** Mots de passe masqués (« -pwd "****" ») : journaux exportés, jamais le script .bat. */
+  function maskPasswords(text) {
+    return str(text).replace(/(^|\s)(-pwd\s+)("[^"\r\n]*"|[^\s"]+)/gi, '$1$2"****"');
   }
 
   /**
@@ -1062,8 +1139,7 @@
     L.push("rem  Code de sortie = nombre d'étapes en échec - 0 si tout s'est bien passé.");
     L.push('rem ==========================================================================');
     L.push('');
-    const usesDs = list.some((s) => ['ou', 'user', 'group', 'member'].includes(s.kind));
-    const usesAcl = list.some((s) => s.kind === 'acl' || s.kind === 'inherit');
+    const { ds: usesDs, icacls: usesAcl } = toolsNeeded(list);
     if (usesDs) L.push("where dsadd >nul 2>&1 || (echo ERREUR : dsadd est introuvable. Lancez ce script sur un contrôleur de domaine ou installez les outils RSAT AD DS.& exit /b 1)");
     if (usesAcl) L.push('where icacls >nul 2>&1 || (echo ERREUR : icacls est introuvable.& exit /b 1)');
     L.push("net session >nul 2>&1 || echo ATTENTION : l'invite de commandes ne semble pas lancée en administrateur.");
@@ -1441,6 +1517,7 @@
     RIGHTS,
     INHERITANCE,
     COLUMNS,
+    TABLE_FILE_NAMES,
     LIMITS,
     normalizeInheritance,
     userDisplayName,
@@ -1467,6 +1544,8 @@
     addMemberCommand,
     toBatch,
     toBatchLine,
+    toolsNeeded,
+    maskPasswords,
     toCsv,
     parseCsv,
     parsePasted,
@@ -1476,5 +1555,6 @@
     normalizeProject,
     classifyResult,
     cleanPath,
+    pathKey,
   };
 });

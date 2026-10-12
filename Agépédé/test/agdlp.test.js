@@ -63,9 +63,11 @@ test('escapeFilter (RFC 4515)', () => {
 
 // --- Membres, droits --------------------------------------------------------
 
-test('splitMembers : séparateurs , ; espace retour ligne, doublons (casse et accents ignorés)', () => {
+test('splitMembers : séparateurs , ; tabulation retour ligne, doublons (casse et accents ignorés)', () => {
   assert.deepEqual(A.splitMembers('jdupont, mmartin;pdurand\r\nJDupont\théloïse\nheloise'), ['jdupont', 'mmartin', 'pdurand', 'héloïse']);
-  assert.deepEqual(A.splitMembers('  jdupont   mmartin '), ['jdupont', 'mmartin']);
+  // L'espace ne sépare jamais : il fait partie du nom (espaces multiples réduits à un seul)
+  assert.deepEqual(A.splitMembers('  jdupont   mmartin '), ['jdupont mmartin']);
+  assert.deepEqual(A.splitMembers('Utilisateurs du domaine'), ['Utilisateurs du domaine']);
   assert.deepEqual(A.splitMembers('Utilisateurs  du domaine, GG_Compta'), ['Utilisateurs du domaine', 'GG_Compta']);
   assert.deepEqual(A.splitMembers(''), []);
   assert.deepEqual(A.splitMembers(null), []);
@@ -279,7 +281,8 @@ test('plan : commandes exactes du projet de référence', () => {
       'Donner Modification à DL_Compta_RW sur D:\\Partages\\Compta',
     ]
   );
-  assert.equal(steps[0].check, 'dsquery * "OU=Paris,DC=lab,DC=local" -scope base 2>nul | findstr "="');
+  assert.equal(steps[0].check, 'dsquery * "OU=Paris,DC=lab,DC=local" -scope base -filter "(objectClass=organizationalUnit)" 2>nul | findstr "="');
+  assert.equal(steps[2].check, `dsquery * "${G}" -scope base -filter "(objectCategory=group)" 2>nul | findstr "="`);
   assert.equal(steps[6].check, `dsquery * "${G}" -scope base -filter "(memberOf=${D})" 2>nul | findstr "="`);
   assert.equal(steps[4].check, `dsquery * domainroot -filter "(&(objectCategory=person)(objectClass=user)(sAMAccountName=jdupont)(memberOf=${G}))" 2>nul | findstr "="`);
   assert.equal(steps[7].check, null);
@@ -669,4 +672,140 @@ test('classifyResult : mot de passe refusé par la stratégie, héritage cassé'
   assert.equal(r.status, 'error');
   assert.match(r.message, /stratégie de mot de passe/);
   assert.equal(A.classifyResult({ exitCode: 0, output: 'ok', kind: 'inherit' }).message, 'Héritage cassé.');
+});
+
+// --- Correctifs (revue de sécurité et de robustesse) ---------------------------
+
+test('DN du domaine : contrôlé strictement même s\'il ne correspond pas au nom DNS (injection cmd)', () => {
+  for (const dn of ['DC=lab,DC=local" & whoami & "', 'DC=lab,DC=%USERNAME%', 'DC=lab,DC=local&calc', 'DC=lab|x,DC=local', 'DC=lab,DC=lo^cal', 'DC=lab,DC=local>x', 'OU=x,DC=lab,DC=local', 'DC=lab\\,x,DC=local', 'DC=,DC=local', 'DC=la b,DC=local']) {
+    const p = sample({ domain: { dns: 'lab.local', dn, netbios: 'LAB' } });
+    assert.ok(find(A.validateProject(p).errors, 'domain', 'dn').length, `devrait refuser ${dn}`);
+    assert.deepEqual(A.plan(p), [], `aucune étape pour ${dn}`);
+  }
+  // Sans nom DNS : même contrôle
+  assert.deepEqual(A.plan(sample({ domain: { dns: '', dn: 'DC=lab,DC=local" & calc & "', netbios: 'LAB' } })), []);
+  // DN valides : casse libre, espaces autour des composants tolérés, avertissement si différent du DNS
+  assert.deepEqual(find(A.validateProject(sample({ domain: { dns: 'lab.local', dn: 'dc=LAB, DC=local', netbios: 'LAB' } })).errors, 'domain'), []);
+  const other = A.validateProject(sample({ domain: { dns: 'lab.local', dn: 'DC=autre-1,DC=local', netbios: 'LAB' } }));
+  assert.deepEqual(find(other.errors, 'domain'), []);
+  assert.ok(find(other.warnings, 'domain', 'dn').length);
+});
+
+test('« \\ » final : refusé dans les mots de passe et les noms, doublé dans les descriptions ; « * » seul refusé', () => {
+  assert.match(A.validatePassword('Azerty12\\'), /se termine par « \\ »/);
+  assert.match(A.validatePassword('*'), /dsadd demanderait/);
+  assert.equal(A.validatePassword('Az\\erty12!'), null);
+  assert.equal(A.validatePassword('**Azerty12'), null);
+  assert.match(A.validateName('person', 'Dupont\\'), /se termine par « \\ »/);
+  assert.equal(A.validateName('person', 'Du\\pont'), null);
+  assert.equal(A.validateName('desc', 'Partage D:\\Compta\\'), null);
+  // Projet : lignes refusées, aucune commande dsadd user produite
+  const p = sampleFull();
+  p.users[0].password = 'Azerty12\\';
+  p.users[1].lastName = 'Martin\\';
+  const r = A.validateProject(p);
+  assert.ok(find(r.errors, 'users', 'password').some((e) => e.id === 'u1'));
+  assert.ok(find(r.errors, 'users', 'lastName').some((e) => e.id === 'u2'));
+  assert.deepEqual(A.plan(p).filter((s) => s.kind === 'user'), []);
+  assert.ok(has(find(A.validateProject(sampleFull({ defaultPassword: 'Bienvenue2026\\' })).errors, 'users', 'defaultPassword'), /se termine par/));
+  // Descriptions : « \ » finaux doublés avant le guillemet fermant (lus comme un seul « \ » par dsadd)
+  const d = sample();
+  d.ous[1].description = 'Partage D:\\Compta\\';
+  d.globals[0].description = 'x\\\\';
+  const steps = A.plan(d);
+  assert.equal(steps[0].command, 'dsadd ou "OU=Paris,DC=lab,DC=local" -desc "Partage D:\\Compta\\\\"');
+  assert.match(steps.find((s) => s.kind === 'group').command, / -desc "x\\\\\\\\"$/);
+});
+
+test('CSV : un suffixe de fichier et des colonnes pour chaque tableau, aller-retour Utilisateurs et Dossiers', () => {
+  for (const t of A.TABLES) {
+    assert.ok(A.TABLE_FILE_NAMES[t], `nom de fichier CSV pour ${t}`);
+    assert.ok(A.COLUMNS[t] && A.COLUMNS[t].length, `colonnes CSV pour ${t}`);
+  }
+  assert.equal(A.TABLE_FILE_NAMES.users, 'Utilisateurs');
+  assert.equal(A.TABLE_FILE_NAMES.folders, 'Dossiers');
+  const users = [
+    { login: 'jdupont', firstName: 'Jean', lastName: 'Dupont', ou: 'Paris/Utilisateurs', password: 'Az;er"ty1' },
+    { login: 'élodie.p', firstName: 'Élodie', lastName: '', ou: '', password: '' },
+  ];
+  const back = A.rowsFromTable('users', A.parseCsv(A.toCsv(users, A.COLUMNS.users)));
+  assert.deepEqual(back.map(({ id, ...r }) => r), users);
+  const folders = [{ path: 'D:\\Données', inheritance: 'break' }, { path: '\\\\srv\\Partage\\RH', inheritance: 'keep' }];
+  assert.deepEqual(A.rowsFromTable('folders', A.parseCsv(A.toCsv(folders, A.COLUMNS.folders))).map(({ id, ...r }) => r), folders);
+});
+
+test('Membres : l\'espace ne sépare pas (« Utilisateurs du domaine ») ; liste séparée par des espaces signalée', () => {
+  const p = sample();
+  p.locals[0].members = 'GG_Compta, Utilisateurs du domaine';
+  const steps = A.plan(p);
+  const m = steps.filter((s) => s.kind === 'member' && s.table === 'locals');
+  assert.deepEqual(m.map((s) => s.label), ['Ajouter GG_Compta dans DL_Compta_RW', 'Ajouter Utilisateurs du domaine dans DL_Compta_RW']);
+  assert.equal(m[1].member.query, 'dsquery group -samid "Utilisateurs du domaine" -limit 1');
+  assert.deepEqual(A.validateProject(p).errors, []);
+  // « jdupont mmartin » (deux comptes du tableau) : lu comme un seul nom → erreur explicite
+  const q = sampleFull();
+  q.globals[0].members = 'jdupont mmartin';
+  assert.ok(has(find(A.validateProject(q).errors, 'globals', 'members'), /séparez les membres par des virgules \(jdupont, mmartin\)/));
+});
+
+test('Dossiers : chemins comparés sans ignorer les accents (NTFS), casse ignorée', () => {
+  const p = sample({ options: { createFolders: true }, folders: [{ id: 'f1', path: 'D:\\Données', inheritance: 'keep' }, { id: 'f2', path: 'D:\\Donnees', inheritance: 'break' }] });
+  p.permissions = [
+    { id: 'p1', path: 'D:\\Données', group: 'DL_Compta_RW', right: 'RW' },
+    { id: 'p2', path: 'D:\\Donnees', group: 'DL_Compta_RW', right: 'R' },
+  ];
+  const r = A.validateProject(p);
+  assert.deepEqual(find(r.errors, 'folders'), []);
+  assert.ok(!has(find(r.warnings, 'permissions'), /reçoit déjà un droit/));
+  const steps = A.plan(p);
+  const folders = steps.filter((s) => s.kind === 'folder');
+  assert.deepEqual(folders.map((s) => s.label), ['Créer le dossier D:\\Données', 'Créer le dossier D:\\Donnees']);
+  assert.equal(steps.find((s) => s.kind === 'inherit').command, 'icacls "D:\\Donnees" /inheritance:d && icacls "D:\\Donnees" /remove:g *S-1-5-32-545 *S-1-5-11');
+  assert.ok(steps.find((s) => s.rowId === 'p2').needs.includes(folders[1].id));
+  assert.ok(steps.find((s) => s.rowId === 'p1').needs.includes(folders[0].id));
+  // Même chemin à la casse près : doublon
+  const dup = sample({ folders: [{ id: 'f1', path: 'D:\\Données', inheritance: 'keep' }, { id: 'f2', path: 'd:\\DONNÉES\\', inheritance: 'keep' }] });
+  assert.deepEqual(find(A.validateProject(dup).errors, 'folders', 'path').map((e) => e.id), ['f2']);
+  assert.equal(A.pathKey('D:\\Données\\'), 'd:\\données');
+});
+
+test('Utilisateur et groupe de même nom dans la même OU (même DN) → erreur ; test d\'existence filtré par type', () => {
+  const p = sample({ options: { defaultPassword: 'Bienvenue2026!' }, users: [{ id: 'u1', login: 'jcompta', firstName: '', lastName: 'GG_Compta', ou: 'Paris/Groupes', password: '' }] });
+  p.globals[0].members = 'jcompta';
+  const r = A.validateProject(p);
+  assert.ok(has(find(r.errors, 'globals', 'name'), /même DN/));
+  const steps = A.plan(p);
+  assert.ok(!steps.some((s) => s.kind === 'group' && s.rowId === 'g1'), 'pas de dsadd group sur le DN du compte');
+  // Autre OU : pas de conflit
+  p.users[0].ou = 'Paris';
+  assert.deepEqual(A.validateProject(p).errors, []);
+  const user = A.plan(p).find((s) => s.kind === 'user');
+  assert.equal(user.check, `dsquery * "${user.dn}" -scope base -filter "(&(objectCategory=person)(objectClass=user))" 2>nul | findstr "="`);
+});
+
+test('toolsNeeded : outils AD seulement pour OU, comptes, groupes et appartenances ; icacls pour droits et héritage', () => {
+  const foldersOnly = A.plan({ domain: { dns: 'lab.local' }, folders: [{ path: 'D:\\A', inheritance: 'keep' }] });
+  assert.deepEqual(A.toolsNeeded(foldersOnly), { ds: false, icacls: false });
+  const acl = A.plan({ domain: { dns: 'lab.local', netbios: 'LAB' }, folders: [{ path: 'D:\\A', inheritance: 'break' }], permissions: [{ path: 'D:\\A', group: 'DL_Existant', right: 'R' }] });
+  assert.deepEqual(A.toolsNeeded(acl), { ds: false, icacls: true });
+  assert.ok(!A.toBatch(acl, {}).includes('where dsadd'));
+  assert.deepEqual(A.toolsNeeded(A.plan(sample())), { ds: true, icacls: true });
+  assert.deepEqual(A.toolsNeeded(null), { ds: false, icacls: false });
+});
+
+test('netbiosOf : déduit du DNS et tronqué à 15 caractères', () => {
+  assert.equal(A.netbiosOf({ dns: 'entreprisegroupe.local' }), 'ENTREPRISEGROUP');
+  assert.equal(A.netbiosOf({ dns: '', dn: 'DC=tresgrandeentreprise,DC=local' }), 'TRESGRANDEENTRE');
+  assert.equal(A.netbiosOf({ dns: 'lab.local' }), 'LAB');
+  const steps = A.plan(sample({ domain: { dns: 'entreprisegroupe.local', dn: '', netbios: '' } }));
+  assert.match(steps.at(-1).command, /"ENTREPRISEGROUP\\DL_Compta_RW:/);
+});
+
+test('maskPasswords : -pwd masqué dans les journaux, le reste intact', () => {
+  const line = 'dsadd user "CN=Jean Dupont,DC=lab" -samid jdupont -display "Jean Dupont" -pwd "Az&r|ty <9>!" -mustchpwd yes -disabled no';
+  assert.equal(A.maskPasswords(line), 'dsadd user "CN=Jean Dupont,DC=lab" -samid jdupont -display "Jean Dupont" -pwd "****" -mustchpwd yes -disabled no');
+  assert.equal(A.maskPasswords('a\r\n      > dsadd user "CN=x" -PWD secret -disabled no\r\nb'), 'a\r\n      > dsadd user "CN=x" -PWD "****" -disabled no\r\nb');
+  assert.equal(A.maskPasswords('dsadd ou "OU=-pwd x,DC=lab"'), 'dsadd ou "OU=-pwd x,DC=lab"');
+  // Le script .bat garde les vrais mots de passe
+  assert.ok(A.toBatch(A.plan(sampleFull()), {}).includes('-pwd "Bienvenue2026!"'));
 });

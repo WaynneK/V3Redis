@@ -340,10 +340,19 @@
     updateTitle();
   }
 
+  /** Copie du projet sans aucun mot de passe (colonne Mot de passe, mot de passe par défaut) : le brouillon est en clair sur le disque. */
+  function withoutPasswords(project) {
+    const p = { ...project, options: { ...(project.options || {}), defaultPassword: '' } };
+    p.users = (project.users || []).map((u) => ({ ...u, password: '' }));
+    const removed = Boolean(str(project.options && project.options.defaultPassword) || (project.users || []).some((u) => str(u.password)));
+    return { project: p, removed };
+  }
+
   function saveDraft() {
     if (state.closing || !state.project) return;
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ project: state.project, filePath: state.filePath, name: state.name, dirty: state.dirty, at: Date.now() }));
+      const { project, removed } = withoutPasswords(state.project);
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ project, passwordsRemoved: removed, filePath: state.filePath, name: state.name, dirty: state.dirty, at: Date.now() }));
     } catch {
       // stockage indisponible : le brouillon n'est simplement pas conservé
     }
@@ -1091,15 +1100,16 @@
     const reasons = [];
     const warns = [];
     const env = state.env;
-    const counts = countKinds(state.steps);
     if (!api) reasons.push('Page ouverte hors de l\'application.');
     else if (state.detecting) reasons.push('Détection de l\'environnement en cours…');
     else if (!env) reasons.push('Environnement non détecté : cliquez sur « Détecter ».');
     else if (!env.fake) {
       const tools = env.tools || {};
+      // Outils exigés selon les étapes (mêmes règles que le processus principal et le script .bat)
+      const need = A.toolsNeeded(state.steps);
       if (!env.isWindows) reasons.push('Simulation et exécution ne sont possibles que sous Windows, sur un contrôleur de domaine ou un poste avec RSAT. Vous pouvez exporter le script .bat et le lancer là-bas.');
-      else if (!tools.dsadd || !tools.dsmod || !tools.dsquery) reasons.push('Outils Active Directory absents (dsadd, dsmod, dsquery) : installez RSAT « Outils AD DS » ou lancez Agépédé sur un contrôleur de domaine. Vous pouvez quand même exporter le script .bat.');
-      else if ((counts.acl || counts.folder || counts.inherit) && !tools.icacls) reasons.push('icacls introuvable : les permissions ne peuvent pas être appliquées depuis ce poste.');
+      else if (need.ds && (!tools.dsadd || !tools.dsmod || !tools.dsquery)) reasons.push('Outils Active Directory absents (dsadd, dsmod, dsquery) : installez RSAT « Outils AD DS » ou lancez Agépédé sur un contrôleur de domaine. Vous pouvez quand même exporter le script .bat.');
+      else if (need.icacls && !tools.icacls) reasons.push('icacls introuvable : les permissions ne peuvent pas être appliquées depuis ce poste.');
     }
     if (state.issues.errors.length) reasons.push(`${plural(state.issues.errors.length, 'erreur à corriger', 'erreurs à corriger')} (voir « Vérification » ci-dessus).`);
     if (state.planError) reasons.push(`Le script ne peut pas être généré : ${state.planError}`);
@@ -1107,7 +1117,7 @@
     if (env && !env.fake && env.isWindows && !env.isAdmin) warns.push('Agépédé n\'est pas lancé en administrateur : certaines commandes (icacls, création de dossiers) peuvent échouer.');
     const dns = str(state.project.domain && state.project.domain.dns).trim();
     if (env && env.domain && env.domain.dns && dns && env.domain.dns.toLowerCase() !== dns.toLowerCase()) warns.push(`Ce poste appartient au domaine ${env.domain.dns}, le projet vise ${dns}.`);
-    if (env && !env.fake && env.isWindows && env.tools && env.tools.dsadd && !(env.domain && env.domain.dns)) warns.push('Aucun domaine détecté pour ce poste : les commandes risquent d\'échouer.');
+    if (env && !env.fake && env.isWindows && env.tools && env.tools.dsadd && A.toolsNeeded(state.steps).ds && !(env.domain && env.domain.dns)) warns.push('Aucun domaine détecté pour ce poste : les commandes risquent d\'échouer.');
     if (env && env.fake) warns.push('MODE TEST (développement) : la simulation et l\'exécution sont fictives, aucune commande n\'est lancée.');
     return { reasons, warns };
   }
@@ -1356,7 +1366,8 @@
       if (r.output) for (const l of String(r.output).split(/\r?\n/)) if (l.trim()) lines.push(`        ${l}`);
     });
     lines.push('', rule, summaryText(), '');
-    return lines.join('\r\n');
+    // Journal partageable : mots de passe masqués (-pwd "****"), le script .bat les garde
+    return A.maskPasswords(lines.join('\r\n'));
   }
 
   async function exportLog() {
@@ -1563,6 +1574,8 @@
         try {
           loadProject(draft.project, { filePath: draft.filePath || null, name: draft.name || '', dirty: Boolean(draft.dirty) });
           if (draft.dirty) toast(`Brouillon restauré (modifications non enregistrées du ${new Date(draft.at || Date.now()).toLocaleString('fr-FR')}).`, 'info');
+          // Les mots de passe ne sont jamais écrits dans le brouillon : à ressaisir (ou rouvrir le fichier du projet)
+          if (draft.passwordsRemoved) toast('Mots de passe non conservés dans le brouillon : ressaisissez-les ou rouvrez le fichier du projet avant d\'enregistrer.', 'info');
         } catch {
           loadProject(A.emptyProject(), {});
         }

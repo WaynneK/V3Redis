@@ -9,7 +9,7 @@ on installe V3Redis, et toutes ses applications avec ; elles se mettent à jour 
 | [`CalkIP/`](CalkIP/) | calculatrice IPv4 hors ligne (calculs en binaire pas à pas) |
 | [`PredF/`](PredF/) | fusion et conversion de PDF, assistant IA (Claude ou IA locale gratuite) |
 | [`Agépédé/`](Agépédé/) | OU, groupes globaux et domaine local Active Directory en AGDLP (exécution sous Windows Server) |
-| [`Cours/`](Cours/) | résumés des cours de la formation : M.Julia (IP, Windows Server, Connexion), A.Julia (hardware) |
+| [`Cours/`](Cours/) | résumés des cours de la formation : M.Julia (IP, Windows Server, Connexion), A.Julia (hardware), Microsoft Office |
 
 SysInfo Lite a son propre dépôt ; il est intégré au paquet quand son projet est présent à côté des autres.
 

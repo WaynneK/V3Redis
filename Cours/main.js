@@ -7,10 +7,10 @@
  */
 'use strict';
 
-const { app, BrowserWindow, ipcMain, nativeTheme, Menu, session } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, Menu, session, dialog, shell } = require('electron');
 const path = require('node:path');
 const fsp = require('node:fs/promises');
-const { fileURLToPath } = require('node:url');
+const { fileURLToPath, pathToFileURL } = require('node:url');
 const Course = require('./lib/course.js');
 const Content = require('./lib/content.js');
 
@@ -56,6 +56,118 @@ function applyTheme(mode) {
 }
 
 // ---------------------------------------------------------------------------
+// Résumés PDF : pdfs/<id de la partie>/*.pdf
+// ---------------------------------------------------------------------------
+
+/**
+ * Dossier des PDF. Application installée : copie hors de l'archive (asarUnpack), lisible par le lecteur PDF.
+ * Développement : pdfs/ du projet, ou COURS_PDF_DIR (tests).
+ */
+function pdfRoot() {
+  if (!app.isPackaged && process.env.COURS_PDF_DIR) return path.resolve(process.env.COURS_PDF_DIR);
+  return path.join(__dirname.replace(/app\.asar$/, 'app.asar.unpacked'), 'pdfs');
+}
+
+/** Chemin d'un PDF d'une partie, en refusant tout ce qui sortirait du dossier de la partie. */
+function pdfPath(partId, file) {
+  const part = Content.parts.find((p) => p.id === partId);
+  if (!part || !Course.isPdfName(file)) throw new Error('Document inconnu.');
+  const dir = path.join(pdfRoot(), part.id);
+  const full = path.join(dir, file);
+  if (path.dirname(full) !== dir) throw new Error('Document inconnu.');
+  return full;
+}
+
+/** Fichiers PDF de chaque partie : { [partId]: [{ file, size, mtime }] } (dossier absent = aucun document). */
+async function listDocuments() {
+  const out = {};
+  for (const part of Content.parts) {
+    const dir = path.join(pdfRoot(), part.id);
+    let entries = [];
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true });
+    } catch {
+      entries = [];
+    }
+    const files = [];
+    for (const e of entries) {
+      if (!e.isFile() || !Course.isPdfName(e.name)) continue;
+      try {
+        const st = await fsp.stat(path.join(dir, e.name));
+        files.push({ file: e.name, size: st.size, mtime: Math.round(st.mtimeMs) });
+      } catch {
+        // fichier disparu entre-temps
+      }
+    }
+    out[part.id] = files;
+  }
+  return out;
+}
+
+const MAX_PREVIEW_BYTES = 80 * 1024 * 1024; // aperçu : PDF lus entièrement par la page (pdf.js)
+
+/** Contenu d'un PDF pour l'aperçu de sa première page. */
+async function readDocument(partId, file) {
+  const full = pdfPath(partId, file);
+  const st = await fsp.stat(full);
+  if (st.size > MAX_PREVIEW_BYTES) return { ok: false, error: 'Fichier trop volumineux pour l\'aperçu.' };
+  const buf = await fsp.readFile(full);
+  return { ok: true, data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) };
+}
+
+/**
+ * Visionneuse : fenêtre avec le lecteur PDF intégré (zoom, recherche, impression, téléchargement).
+ * page : ouvre directement à cette page (sommaire), dans la fenêtre déjà ouverte s'il y en a une.
+ */
+const viewers = new Map(); // chemin → fenêtre déjà ouverte
+async function openDocument(partId, file, title, page) {
+  const full = pdfPath(partId, file);
+  await fsp.access(full);
+  const n = Number.isInteger(page) && page >= 1 && page <= 100000 ? page : 0;
+  const url = pathToFileURL(full).href + (n ? `#page=${n}` : '');
+  const open = viewers.get(full);
+  if (open && !open.isDestroyed()) {
+    if (open.isMinimized()) open.restore();
+    // Fenêtre déjà ouverte : un simple changement de « #page » n'est pas suivi par le lecteur PDF ; le paramètre
+    // ?v= (ignoré pour un fichier) force un vrai chargement à la bonne page
+    if (n) await open.loadURL(`${pathToFileURL(full).href}?v=${Date.now()}#page=${n}`);
+    open.focus();
+    return { ok: true };
+  }
+  const win = new BrowserWindow({
+    width: 1000,
+    height: 820,
+    minWidth: 480,
+    minHeight: 400,
+    title: `${String(title || file).slice(0, 120)} — Cours`,
+    icon: ICON_FILE,
+    backgroundColor: '#525659',
+    autoHideMenuBar: true,
+    webPreferences: { plugins: true, contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, devTools: !app.isPackaged },
+  });
+  viewers.set(full, win);
+  win.on('page-title-updated', (e) => e.preventDefault()); // garde le titre du résumé
+  win.on('closed', () => viewers.delete(full));
+  win.webContents.on('will-navigate', (event) => event.preventDefault());
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  await win.loadURL(url);
+  return { ok: true };
+}
+
+/** Télécharger : copie du PDF à l'endroit choisi (Téléchargements par défaut). */
+async function saveDocument(partId, file) {
+  const full = pdfPath(partId, file);
+  const res = await dialog.showSaveDialog(mainWindow, {
+    title: 'Enregistrer le résumé',
+    defaultPath: path.join(app.getPath('downloads'), file),
+    filters: [{ name: 'Document PDF', extensions: ['pdf'] }],
+  });
+  if (res.canceled || !res.filePath) return { ok: false, canceled: true };
+  await fsp.copyFile(full, res.filePath);
+  return { ok: true, filePath: res.filePath };
+}
+
+// ---------------------------------------------------------------------------
 // IPC
 // ---------------------------------------------------------------------------
 
@@ -92,7 +204,20 @@ function registerIpc() {
     await saveSettings();
     return { ok: true, mode };
   });
-  handle('app:info', async () => ({ version: app.getVersion(), platform: process.platform }));
+  handle('app:info', async () => ({ version: app.getVersion(), platform: process.platform, dev: !app.isPackaged }));
+  handle('docs:list', () => listDocuments());
+  handle('docs:read', (partId, file) => readDocument(String(partId), String(file)));
+  handle('docs:open', (partId, file, title, page) => openDocument(String(partId), String(file), String(title || ''), Number(page) || 0));
+  handle('docs:save', (partId, file) => saveDocument(String(partId), String(file)));
+  handle('docs:folder', async (partId) => {
+    // Développement : ouvre le dossier où déposer les PDF d'une partie (créé au besoin)
+    const part = Content.parts.find((p) => p.id === partId);
+    if (!part || app.isPackaged) return { ok: false };
+    const dir = path.join(pdfRoot(), part.id);
+    await fsp.mkdir(dir, { recursive: true });
+    await shell.openPath(dir);
+    return { ok: true };
+  });
   ipcMain.on('app:ui-ready', (event) => {
     if (isTrustedSender(event)) resolveUiReady();
   });

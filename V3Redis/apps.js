@@ -10,6 +10,8 @@
  *   accent       couleur de l'application (lueur du sélecteur, nébuleuse du fond)
  *   features     points forts (3 ou 4 courts)
  *   status       'available' (installable / lançable) ou 'soon' (annoncée, pas encore sortie)
+ *   placement    'module' : affichée en haut (barre de titre) comme module, hors du sélecteur de boîtes ;
+ *                absent : boîte du sélecteur
  *   downloadUrl  page de téléchargement (seuls ces liens peuvent être ouverts par le HUB)
  *   windows      { displayName, exe, defaultDir } : nom dans « Applications installées »,
  *                exécutable dans le dossier d'installation, dossier par défaut de l'installeur
@@ -32,6 +34,7 @@ module.exports = [
     accent: '#8b6dff',
     features: ['Processeur & GPU', 'Mémoire & disques', 'Températures en direct', 'Test de débit'],
     status: 'available',
+    placement: 'module', // en haut, à côté des boutons : le sélecteur garde la place pour d'autres applications
     downloadUrl: 'https://github.com/WaynneK/SysInfoLite/releases/latest',
     windows: {
       displayName: 'SysInfo Lite',
@@ -144,15 +147,17 @@ module.exports = [
     },
   },
   {
-    // Application prête (projet ..\Cours) mais pas encore ouverte : « Bientôt disponible », absente de
-    // l'installeur. Passer à 'available' quand les résumés seront écrits.
+    // Application prête (projet ..\Cours) mais pas encore ouverte : « Bientôt disponible » et absente de
+    // l'installeur. devPreview : ouverte en développement (npm start), pour travailler dessus depuis le HUB.
+    // Passer à 'available' quand les résumés seront écrits.
     id: 'cours',
+    devPreview: true,
     name: 'Cours',
     tagline: 'Les résumés de la formation',
-    description: 'Les résumés des cours de la formation : M.Julia (IP, Windows Server) et A.Julia (hardware).',
+    description: 'Les résumés PDF de la formation : M.Julia (IP, Windows Server), A.Julia (hardware) et Microsoft Office.',
     icon: 'cours.svg',
     accent: '#34d399',
-    features: ['M.Julia · A.Julia', 'Points clés', 'Recherche', 'Révision rapide'],
+    features: ['Résumés PDF', 'Aperçu et visionneuse', 'Téléchargement', 'Recherche'],
     status: 'soon',
     downloadUrl: null,
     windows: {

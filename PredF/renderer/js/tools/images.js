@@ -44,10 +44,12 @@ export function create() {
     const show = (url) => (img.src = url);
     if (urls.has(entry.key)) show(urls.get(entry.key));
     else
-      imageUrl(entry.file.id).then((url) => {
-        urls.set(entry.key, url);
-        show(url);
-      });
+      imageUrl(entry.file.id)
+        .then((url) => {
+          urls.set(entry.key, url);
+          show(url);
+        })
+        .catch(() => box.classList.add('failed')); // fichier refermé entre-temps
     const turn = (delta) => {
       entry.rotate = (entry.rotate + delta + 360) % 360;
       box.className = `thumb image-thumb rot-${entry.rotate}`;

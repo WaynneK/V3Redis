@@ -5,7 +5,7 @@
 
 import { api, h, icon, button, plural, baseName, check, showResult, withBusy, sortable, moveItems, pickFiles, formatBytes, toast } from '../core.js';
 import { dropZone, actionBar } from '../components.js';
-import { renderThumb, lazyThumbs } from '../pdfview.js';
+import { renderThumb, lazyThumbs, forget } from '../pdfview.js';
 
 const SIZE_KEY = 'predf.thumbSize';
 
@@ -186,6 +186,7 @@ export function create() {
 
   function closeAll() {
     api.release([...state.sources.keys()]);
+    for (const id of state.sources.keys()) forget(id); // documents pdf.js des miniatures
     state.sources.clear();
     state.pages = [];
     state.selected.clear();

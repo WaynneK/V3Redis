@@ -28,7 +28,7 @@ contextBridge.exposeInMainWorld('hub', {
   addApp: (id) => ipcRenderer.invoke('apps:add', String(id)),
   cancelAddApp: () => ipcRenderer.invoke('apps:cancelAdd'),
   removeApp: (id) => ipcRenderer.invoke('apps:remove', String(id)),
-  /** Progression : { id, phase: 'prepare'|'download'|'extract'|'done'|'error'|'cancelled', received, total } */
+  /** Progression : { id, phase: 'prepare'|'download'|'extract'|'finish'|'done'|'error'|'cancelled', percent, received, total, error } */
   onAppProgress: (callback) => {
     if (typeof callback === 'function') ipcRenderer.on('apps:progress', (_event, p) => callback(p || {}));
   },

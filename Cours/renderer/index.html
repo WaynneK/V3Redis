@@ -5,7 +5,7 @@
     <!-- 100 % local : aucune ressource externe, aucune connexion -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Cours</title>
@@ -13,7 +13,7 @@
   </head>
   <body>
     <header class="topbar">
-      <button type="button" class="brand" id="home-link" title="Toutes les parties (Échap)">
+      <button type="button" class="brand" id="home-link" title="Accueil : nouveautés (Échap)">
         <img src="assets/logo.svg" alt="" class="brand-logo" />
         <span class="brand-text">
           <strong>Cours</strong>
@@ -23,9 +23,9 @@
 
       <nav class="crumbs" id="crumbs" aria-label="Fil d'Ariane"></nav>
 
-      <label class="search" title="Rechercher dans tous les cours (Ctrl+K)">
+      <label class="search" title="Rechercher dans tous les résumés (Ctrl+K)">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5" /></svg>
-        <input type="search" id="search" placeholder="Rechercher un chapitre, une notion…" autocomplete="off" spellcheck="false" />
+        <input type="search" id="search" placeholder="Rechercher un résumé…" autocomplete="off" spellcheck="false" />
         <kbd>Ctrl K</kbd>
       </label>
 
@@ -42,10 +42,21 @@
       </div>
     </header>
 
-    <!-- Les vues sont construites par app.js : accueil (les parties), partie (chapitres + résumé), recherche -->
-    <main class="main" id="main" tabindex="-1"></main>
+    <div class="shell">
+      <!-- Barre des parties : accueil + une pastille par partie (construite par app.js) -->
+      <nav class="rail" id="rail" aria-label="Parties"></nav>
+      <!-- Les vues sont construites par app.js : accueil (les parties), partie (ses cours), recherche -->
+      <main class="main" id="main" tabindex="-1"></main>
+    </div>
 
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <!-- pdf.js (aperçu de la première page des PDF), hors ligne. Le « worker » est chargé dans la page
+         (pas de Web Worker) : aucune autorisation supplémentaire dans la politique de sécurité. -->
+    <script src="../node_modules/pdfjs-dist/build/pdf.min.js"></script>
+    <script src="../node_modules/pdfjs-dist/build/pdf.worker.min.js"></script>
     <script src="../lib/content.js"></script>
+    <script src="../lib/changelog.js"></script>
     <script src="../lib/course.js"></script>
     <script src="app.js"></script>
   </body>

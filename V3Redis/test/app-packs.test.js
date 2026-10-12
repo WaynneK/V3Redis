@@ -59,3 +59,75 @@ test('findPack : taille extraite facultative, ignorée si invalide', () => {
   assert.equal(Packs.findPack({ apps: [{ ...p, unpacked: -3 }] }, 'calkip').unpacked, null);
   assert.equal(Packs.findPack({ apps: [p] }, 'calkip').unpacked, null);
 });
+
+// --- pipeToFile : téléchargement → fichier (lecteur et flux d'écriture simulés, aucun accès réseau) ---------
+const { Writable } = require('node:stream');
+
+/** Lecteur de ReadableStream simulé : morceaux donnés, puis fin (ou erreur). */
+function fakeReader(chunks, { failAt = -1 } = {}) {
+  let i = 0;
+  const r = {
+    cancelled: null,
+    async read() {
+      if (i === failAt) throw new Error('connexion perdue');
+      if (i >= chunks.length) return { done: true, value: undefined };
+      return { done: false, value: Buffer.from(chunks[i++]) };
+    },
+    async cancel(reason) {
+      r.cancelled = reason || true;
+    },
+  };
+  return r;
+}
+
+/** Flux d'écriture : conserve les octets, ou échoue à la n-ième écriture (disque plein). */
+function sink({ failOnWrite = 0, highWaterMark = 16 } = {}) {
+  let n = 0;
+  const out = new Writable({
+    highWaterMark,
+    write(chunk, _enc, cb) {
+      n++;
+      if (failOnWrite && n >= failOnWrite) return setImmediate(() => cb(Object.assign(new Error('ENOSPC: plus de place'), { code: 'ENOSPC' })));
+      out.data = Buffer.concat([out.data, chunk]);
+      setImmediate(cb);
+    },
+  });
+  out.data = Buffer.alloc(0);
+  return out;
+}
+
+test('pipeToFile : copie complète, progression et nombre d\'octets', async () => {
+  const out = sink({ highWaterMark: 2 }); // contre-pression : attente de « drain »
+  const seen = [];
+  const got = await Packs.pipeToFile(fakeReader(['abc', 'defg', 'hi']), out, 9, (chunk, received) => seen.push([String(chunk), received]));
+  assert.equal(got, 9);
+  assert.equal(String(out.data), 'abcdefghi');
+  assert.deepEqual(seen, [['abc', 3], ['defg', 7], ['hi', 9]]);
+});
+
+test('pipeToFile : erreur d\'écriture → rejet (pas d\'exception non gérée, pas d\'attente sans fin), lecture annulée, fichier fermé', { timeout: 5000 }, async () => {
+  const reader = fakeReader(['aaaaaaaa', 'bbbbbbbb', 'cccccccc', 'dddddddd']);
+  const out = sink({ failOnWrite: 2, highWaterMark: 4 });
+  await assert.rejects(Packs.pipeToFile(reader, out, 1000), /ENOSPC/);
+  assert.ok(reader.cancelled, 'téléchargement arrêté');
+  assert.ok(out.destroyed && out.closed, 'fichier fermé');
+});
+
+test('pipeToFile : erreur à la fermeture du fichier → rejet', { timeout: 5000 }, async () => {
+  const out = new Writable({
+    write: (_c, _e, cb) => cb(),
+    final: (cb) => cb(new Error('EIO: écriture finale impossible')),
+  });
+  await assert.rejects(Packs.pipeToFile(fakeReader(['abc']), out, 10), /EIO/);
+});
+
+test('pipeToFile : paquet plus gros que prévu, ou lecture interrompue → rejet, fichier fermé', { timeout: 5000 }, async () => {
+  const big = fakeReader(['12345', '67890']);
+  const out = sink();
+  await assert.rejects(Packs.pipeToFile(big, out, 6), /plus gros que prévu/);
+  assert.ok(big.cancelled);
+  assert.ok(out.destroyed);
+  const lost = sink();
+  await assert.rejects(Packs.pipeToFile(fakeReader(['abc', 'def'], { failAt: 1 }), lost, 100), /connexion perdue/);
+  assert.ok(lost.destroyed);
+});

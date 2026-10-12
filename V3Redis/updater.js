@@ -253,14 +253,18 @@ function check({ manual = false } = {}) {
 /**
  * Installe la mise à jour téléchargée : refuse si une application livrée est ouverte (ses fichiers seraient
  * verrouillés), sinon ferme V3Redis, lance l'installation silencieuse puis relance V3Redis.
+ * blocked() → message (installation d'une application en cours, par exemple) ou null : vérifié au début puis
+ * juste avant de fermer V3Redis.
  */
-async function install({ force = false } = {}) {
+async function install({ force = false, blocked = () => null } = {}) {
   if (status.mode !== 'auto' || status.state !== 'downloaded') return { ok: false, error: 'Aucune mise à jour prête.' };
   if (status.test) return { ok: false, error: 'Mode test : l\'installation n\'est possible que dans V3Redis installé.' };
+  if (blocked()) return { ok: false, error: blocked() };
   if (!force) {
     const open = await openBundledApps();
     if (open.length) return { ok: false, open, error: `Fermez d'abord ${open.join(', ')} : ${open.length > 1 ? 'ces applications sont mises à jour' : 'cette application est mise à jour'} avec V3Redis.` };
   }
+  if (blocked()) return { ok: false, error: blocked() }; // commencée pendant la vérification ci-dessus
   setImmediate(() => autoUpdater.quitAndInstall(true, true)); // silencieux, puis relance de V3Redis
   return { ok: true };
 }

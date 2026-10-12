@@ -234,6 +234,90 @@ p {
   display: none;
 }
 
+/* Modules : applications placées en haut (SysInfo Lite), hors du sélecteur de boîtes */
+.modules {
+  display: flex;
+  gap: 8px;
+}
+
+.modules:empty {
+  display: none;
+}
+
+.module {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 40px;
+  padding: 0 14px 0 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--muted);
+  font: 600 12.5px var(--font);
+  white-space: nowrap;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: color 200ms, border-color 250ms, box-shadow 300ms, background 250ms;
+}
+
+.module:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+/* Choisi : couleur de l'application, comme une boîte du sélecteur */
+.module.active {
+  border-color: rgba(var(--card-rgb), 0.7);
+  background: linear-gradient(160deg, rgba(var(--card-rgb), 0.16), rgba(255, 255, 255, 0.02)), var(--panel);
+  color: var(--text);
+  box-shadow: 0 0 0 1px rgba(var(--card-rgb), 0.3), 0 10px 26px -12px rgba(var(--card-rgb), 0.7);
+}
+
+.module:focus-visible {
+  outline: 2px solid rgba(var(--card-rgb), 0.8);
+  outline-offset: 2px;
+}
+
+.module-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.module.soon .module-icon {
+  filter: grayscale(0.7);
+}
+
+/* Point d'état : vert = prêt, bleu = installé, jaune = non installé */
+.module-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.module-dot.ok {
+  background: var(--ok);
+}
+
+.module-dot.ready {
+  background: var(--info);
+}
+
+.module-dot.missing {
+  background: var(--warn);
+}
+
+.module .card-progress {
+  right: 8px;
+  bottom: 4px;
+  left: 8px;
+  height: 3px;
+}
+
 .icon-btn.spin svg {
   animation: spin 700ms var(--ease);
 }
@@ -297,12 +381,14 @@ p {
 }
 
 .card-face {
+  --card-pad-top: 38px; /* repères de la coche (posée sur l'icône) */
+  --card-icon: 104px;
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   height: 100%;
-  padding: 38px 26px 26px;
+  padding: var(--card-pad-top) 26px 26px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 26px;
@@ -327,18 +413,24 @@ p {
     0 24px 60px -18px rgba(var(--card-rgb), 0.55);
 }
 
+/* Coche de l'application choisie : posée sur le coin bas-droit de l'icône (le haut de la boîte reste libre,
+   les boîtes peuvent se resserrer pour accueillir d'autres applications). Absente sur les autres boîtes. */
 .card-check {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: calc(var(--card-pad-top) + var(--card-icon) - 20px);
+  left: calc(50% + var(--card-icon) / 2 - 20px);
+  z-index: 1;
   display: grid;
   place-items: center;
   width: 26px;
   height: 26px;
-  border: 1px solid var(--border-strong);
+  border: 2px solid var(--bg, #0b0c1a);
   border-radius: 50%;
-  color: transparent;
-  transition: background 300ms, border-color 300ms, color 300ms, transform 300ms var(--ease);
+  background: rgb(var(--card-rgb));
+  color: #0b0c1a;
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 250ms, transform 350ms var(--ease);
 }
 
 .card-check svg {
@@ -352,16 +444,19 @@ p {
 }
 
 .card.active .card-check {
-  border-color: transparent;
-  background: rgb(var(--card-rgb));
-  color: #0b0c1a;
-  transform: scale(1.05);
+  opacity: 1;
+  transform: none;
+}
+
+/* Suit l'icône quand elle se soulève au survol */
+.card.active:hover .card-check {
+  transform: translateY(-4px);
 }
 
 .card-icon {
   position: relative;
-  width: 104px;
-  height: 104px;
+  width: var(--card-icon);
+  height: var(--card-icon);
   transition: transform 450ms var(--ease);
 }
 
@@ -387,6 +482,41 @@ p {
 .card .pill {
   position: relative;
   margin-top: auto;
+}
+
+/* Accroche sur deux lignes au plus : l'état reste en bas de la boîte, même étroite */
+.card-tagline {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* Boîtes étroites (6 applications ou plus) : textes resserrés selon la largeur de la boîte elle-même */
+.card {
+  container-type: inline-size;
+}
+
+@container (max-width: 180px) {
+  .card-face {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .card-name {
+    font-size: 18px;
+    white-space: nowrap;
+  }
+
+  .card-tagline {
+    font-size: 12px;
+  }
+
+  .card .pill {
+    gap: 5px;
+    padding: 4px 9px;
+    font-size: 11px;
+  }
 }
 
 .card.soon .card-icon {
@@ -1107,12 +1237,8 @@ html.light .op-bar.indeterminate span {
   }
 
   .card-face {
-    padding-top: 24px;
-  }
-
-  .card-icon {
-    width: 84px;
-    height: 84px;
+    --card-pad-top: 24px;
+    --card-icon: 84px;
   }
 
   .card-name {
@@ -1698,6 +1824,26 @@ html.light .update-chip {
   padding: 0 12px;
   border: 1px solid var(--border-strong);
   background: var(--panel);
+}
+
+html.light .module {
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px 0 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  box-shadow: none;
+}
+
+html.light .module.active {
+  border-color: rgb(var(--card-rgb));
+  background: #262a33;
+}
+
+html.light .module-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
 }
 
 html.light .icon-btn {

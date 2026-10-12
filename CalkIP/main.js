@@ -18,6 +18,7 @@ const fsp = require('node:fs/promises');
 const { fileURLToPath } = require('node:url');
 const IPCalc = require('./lib/ipcalc.js');
 const IPBinary = require('./lib/binary.js');
+const Exporter = require('./lib/export.js');
 
 const IS_WIN = process.platform === 'win32';
 const INDEX_FILE = path.join(__dirname, 'renderer', 'index.html');
@@ -63,40 +64,10 @@ function applyTheme(mode) {
 }
 
 // ---------------------------------------------------------------------------
-// Calcul côté processus principal (mêmes fonctions que la page)
+// Calcul côté processus principal (mêmes fonctions que la page) : voir lib/export.js
 // ---------------------------------------------------------------------------
 
-/** Requête de la page → { calc, pool, reason, input } ; lève une CalcError si la saisie est invalide. */
-function compute(req) {
-  const input = String((req && req.input) || '').slice(0, 200);
-  const parsed = IPCalc.parseInput(input);
-  const { prefix, reason } = IPCalc.resolvePrefix(parsed, req.mode === 'auto' ? 'auto' : Number(req.mode));
-  const calc = IPCalc.calculate(parsed.ip, prefix);
-  const d = req.dhcp || {};
-  const pool = IPCalc.dhcpPool(calc, {
-    gateway: ['first', 'last', 'none', 'custom'].includes(d.gateway) ? d.gateway : 'first',
-    customGateway: String(d.customGateway || ''),
-    reserveStart: d.reserveStart,
-    reserveEnd: d.reserveEnd,
-    exclusions: String(d.exclusions || '').slice(0, 100000),
-    limit: d.limit === undefined || d.limit === null ? '' : String(d.limit).slice(0, 12),
-  });
-  return { calc, pool, reason, input };
-}
-
-const stamp = () => new Date().toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
-const rule = '='.repeat(64);
-
-function header(title, data) {
-  return [
-    `CalkIP — ${title}`,
-    `Généré le ${stamp()} (calcul local, hors ligne)`,
-    rule,
-    ...IPCalc.summaryLines(data.calc, data.pool, { input: data.input, reason: data.reason }),
-    ...(data.pool.notes.length ? ['', ...data.pool.notes.map((n) => `Remarque : ${n}`)] : []),
-    rule,
-  ];
-}
+const { compute, header, rule, stamp, writeFileSafely } = Exporter;
 
 const safeName = (s) => s.replace(/[\\/:*?"<>|]+/g, '-');
 
@@ -120,35 +91,37 @@ const writtenFiles = new Set();
 // Export de la liste d'adresses (écriture par blocs, progression, annulation)
 // ---------------------------------------------------------------------------
 
-let currentExport = null; // { canceled: boolean }
+let currentExport = null; // { canceled: boolean, done: Promise } — un seul export à la fois, quel qu'il soit
+
+/**
+ * Lance un export (liste, résumé, découpage, calcul binaire) s'il n'y en a pas déjà un en cours.
+ * job.done permet à la fermeture de l'application d'attendre la fin du nettoyage.
+ */
+async function runExclusive(fn) {
+  if (currentExport) return { ok: false, error: 'Un export est déjà en cours.' };
+  const job = { canceled: false, done: null };
+  currentExport = job;
+  job.done = fn(job);
+  try {
+    return await job.done;
+  } finally {
+    if (currentExport === job) currentExport = null;
+  }
+}
+
+const canceledError = () => Object.assign(new Error('Export annulé.'), { canceled: true });
 
 function sendProgress(payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('export:progress', payload);
 }
 
-/** Écrit `chunk` en respectant la contre-pression du flux. */
-function writeChunk(stream, chunk) {
-  return new Promise((resolve, reject) => {
-    const onError = (err) => reject(err);
-    stream.once('error', onError);
-    if (stream.write(chunk)) {
-      stream.removeListener('error', onError);
-      resolve();
-    } else {
-      stream.once('drain', () => {
-        stream.removeListener('error', onError);
-        resolve();
-      });
-    }
-  });
-}
-
-async function exportList(req) {
-  if (currentExport) return { ok: false, error: 'Un export est déjà en cours.' };
+async function exportList(req, job) {
   const data = compute(req);
   const { calc, pool } = data;
   const scope = req.scope === 'usable' ? 'usable' : 'pool';
   const numbered = Boolean(req.numbered);
+  // Liste des baux : elle a besoin d'une plage DHCP valide (la liste des adresses utilisables, non)
+  if (scope === 'pool' && !pool) throw data.poolError;
 
   // Plage à écrire : baux DHCP (plage distribuable, exclusions retirées) ou toutes les adresses utilisables
   const range = scope === 'pool' ? { start: pool.start, end: pool.end, excluded: pool.skip, count: pool.leases } : { start: calc.firstHost, end: calc.lastHost, excluded: [], count: calc.usable };
@@ -159,15 +132,13 @@ async function exportList(req) {
 
   const net = `${IPCalc.toIp(calc.network)}-${calc.prefix}`;
   const filePath = await askSavePath(`CalkIP_${safeName(net)}_${scope === 'pool' ? 'baux-DHCP' : 'adresses'}.txt`);
-  if (!filePath) return { ok: false, canceled: true };
+  if (!filePath || job.canceled) return { ok: false, canceled: true };
 
-  const job = { canceled: false };
-  currentExport = job;
   const started = Date.now();
-  const stream = fs.createWriteStream(filePath, { encoding: 'utf8' });
   let written = 0;
   let lastSent = 0;
-  try {
+  // Écriture dans un fichier temporaire, renommé en filePath à la fin seulement (voir lib/export.js)
+  const produce = async (write) => {
     const title = scope === 'pool' ? 'baux DHCP disponibles' : 'adresses IP utilisables';
     const head = [
       ...header(`liste des ${title}`, data),
@@ -178,7 +149,7 @@ async function exportList(req) {
       '',
     ];
     // BOM UTF-8 : le Bloc-notes affiche correctement les accents de l'en-tête
-    await writeChunk(stream, `﻿${head.join(EOL)}${EOL}`);
+    await write(`﻿${head.join(EOL)}${EOL}`);
 
     // Parcours par blocs de 50 000 adresses : chaque bloc reprend après la dernière adresse écrite
     const width = String(range.count).length;
@@ -199,11 +170,11 @@ async function exportList(req) {
     };
 
     for (;;) {
-      if (job.canceled) throw Object.assign(new Error('Export annulé.'), { canceled: true });
+      if (job.canceled) throw canceledError();
       if (nextStart > range.end) break;
       const block = emitBlock();
       if (!block) break;
-      await writeChunk(stream, block);
+      await write(block);
       written = emittedTotal;
       const now = Date.now();
       if (now - lastSent > 80) {
@@ -214,27 +185,26 @@ async function exportList(req) {
       await new Promise((resolve) => setImmediate(resolve));
     }
 
-    await writeChunk(stream, `${EOL}${rule}${EOL}Total : ${IPCalc.formatNumber(written)} adresses${EOL}`);
-    await new Promise((resolve, reject) => stream.end((err) => (err ? reject(err) : resolve())));
+    await write(`${EOL}${rule}${EOL}Total : ${IPCalc.formatNumber(written)} adresses${EOL}`);
     if (written !== range.count) throw new Error(`Incohérence : ${written} adresses écrites pour ${range.count} attendues.`);
-    sendProgress({ written, total: range.count, done: true });
-    writtenFiles.add(filePath);
-    const bytes = (await fsp.stat(filePath)).size;
-    return { ok: true, filePath, count: written, bytes, ms: Date.now() - started };
+  };
+  try {
+    await writeFileSafely(filePath, produce);
   } catch (err) {
-    stream.destroy();
-    await fsp.unlink(filePath).catch(() => {}); // pas de fichier incomplet laissé sur le disque
+    // Seul le fichier temporaire est supprimé : un fichier existant que l'on devait remplacer reste intact
     sendProgress({ written, total: range.count, aborted: true });
-    if (err && err.canceled) return { ok: false, canceled: true, error: 'Export annulé : le fichier incomplet a été supprimé.' };
+    if (err && err.canceled) return { ok: false, canceled: true, error: 'Export annulé : aucun fichier n\'a été écrit ni modifié.' };
     throw err;
-  } finally {
-    currentExport = null;
   }
+  sendProgress({ written, total: range.count, done: true });
+  writtenFiles.add(filePath);
+  const bytes = (await fsp.stat(filePath)).size;
+  return { ok: true, filePath, count: written, bytes, ms: Date.now() - started };
 }
 
 /** Résumé seul (et, si demandé, la liste des sous-réseaux d'un découpage). */
-async function exportSummary(req) {
-  const data = compute(req);
+async function exportSummary(req, job) {
+  const data = compute(req); // réglages DHCP invalides : le résumé sort quand même, sans plage DHCP
   const lines = header('résumé du calcul', data);
   let splitInfo = null;
   if (req.split && Number.isFinite(Number(req.split))) {
@@ -245,14 +215,12 @@ async function exportSummary(req) {
   }
   const name = `CalkIP_${safeName(`${IPCalc.toIp(data.calc.network)}-${data.calc.prefix}`)}_${splitInfo ? `decoupage-${splitInfo.prefix}` : 'resume'}.txt`;
   const filePath = await askSavePath(name);
-  if (!filePath) return { ok: false, canceled: true };
+  if (!filePath || job.canceled) return { ok: false, canceled: true };
 
-  const stream = fs.createWriteStream(filePath, { encoding: 'utf8' });
-  try {
-    await writeChunk(stream, `﻿${lines.join(EOL)}${EOL}`);
+  const produce = async (write) => {
+    await write(`﻿${lines.join(EOL)}${EOL}`);
     if (splitInfo) {
-      await writeChunk(
-        stream,
+      await write(
         [
           '',
           `Découpage en /${splitInfo.prefix} : ${IPCalc.formatNumber(splitInfo.count)} sous-réseaux de ${IPCalc.formatNumber(splitInfo.size)} adresses (${IPCalc.formatNumber(splitInfo.usablePerSubnet)} utilisables chacun)`,
@@ -263,34 +231,36 @@ async function exportSummary(req) {
       );
       const per = 4096;
       for (let offset = 0; offset < splitInfo.count; offset += per) {
+        if (job.canceled) throw canceledError(); // fermeture de l'application pendant l'export
         const part = IPCalc.splitSubnets(data.calc, splitInfo.prefix, per, offset).subnets;
         const block = part
           .map((s, i) =>
             `${String(offset + i + 1).padEnd(10)}${`${IPCalc.toIp(s.network)}/${s.prefix}`.padEnd(20)}${IPCalc.toIp(s.firstHost).padEnd(17)}${IPCalc.toIp(s.lastHost).padEnd(17)}${s.broadcast === null ? '—' : IPCalc.toIp(s.broadcast)}`
           )
           .join(EOL);
-        await writeChunk(stream, block + EOL);
+        await write(block + EOL);
         await new Promise((resolve) => setImmediate(resolve));
       }
     }
-    await new Promise((resolve, reject) => stream.end((err) => (err ? reject(err) : resolve())));
-    writtenFiles.add(filePath);
-    return { ok: true, filePath };
+  };
+  try {
+    await writeFileSafely(filePath, produce);
   } catch (err) {
-    stream.destroy();
-    await fsp.unlink(filePath).catch(() => {});
+    if (err && err.canceled) return { ok: false, canceled: true, error: 'Export annulé : aucun fichier n\'a été écrit ni modifié.' };
     throw err;
   }
+  writtenFiles.add(filePath);
+  return { ok: true, filePath };
 }
 
 /** Calcul binaire expliqué étape par étape (refait ici à partir de l'adresse et du préfixe). */
-async function exportBinary(req) {
+async function exportBinary(req, job) {
   const ip = IPCalc.parseIp(String((req && req.ip) || '').slice(0, 40));
   const prefix = IPCalc.parsePrefix(String(req && req.prefix));
   const filePath = await askSavePath(`CalkIP_${safeName(`${IPCalc.toIp(ip)}-${prefix}`)}_calcul-binaire.txt`);
-  if (!filePath) return { ok: false, canceled: true };
+  if (!filePath || job.canceled) return { ok: false, canceled: true };
   const lines = [`CalkIP — calcul binaire`, `Généré le ${stamp()} (calcul local, hors ligne)`, rule, '', ...IPBinary.explainLines(ip, prefix), '', rule];
-  await fsp.writeFile(filePath, `﻿${lines.join(EOL)}${EOL}`, 'utf8'); // BOM : accents lisibles dans le Bloc-notes
+  await writeFileSafely(filePath, (write) => write(`﻿${lines.join(EOL)}${EOL}`)); // BOM : accents lisibles dans le Bloc-notes
   writtenFiles.add(filePath);
   return { ok: true, filePath };
 }
@@ -325,9 +295,9 @@ function handle(channel, fn) {
 }
 
 function registerIpc() {
-  handle('export:list', (req) => exportList(req || {}));
-  handle('export:summary', (req) => exportSummary(req || {}));
-  handle('export:binary', (req) => exportBinary(req || {}));
+  handle('export:list', (req) => runExclusive((job) => exportList(req || {}, job)));
+  handle('export:summary', (req) => runExclusive((job) => exportSummary(req || {}, job)));
+  handle('export:binary', (req) => runExclusive((job) => exportBinary(req || {}, job)));
   handle('export:cancel', async () => {
     if (currentExport) currentExport.canceled = true;
     return { ok: true };
@@ -551,5 +521,18 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
+  });
+
+  // Fermeture pendant un export : on l'annule et on attend que le fichier temporaire soit supprimé
+  // avant de quitter (au plus 10 s). Le second appel à app.quit() passe sans attendre.
+  let quitAfterExport = false;
+  app.on('before-quit', (event) => {
+    const job = currentExport;
+    if (!job || quitAfterExport) return;
+    event.preventDefault();
+    quitAfterExport = true;
+    job.canceled = true;
+    const timeout = new Promise((resolve) => setTimeout(resolve, 10000));
+    Promise.race([Promise.resolve(job.done).catch(() => {}), timeout]).then(() => app.quit());
   });
 }

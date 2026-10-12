@@ -70,4 +70,55 @@ function overallPercent({ phase, received = 0, total = 0, extracted = 0, unpacke
 /** « 132 Mo » */
 const mo = (bytes) => `${Math.max(1, Math.round((bytes || 0) / 1048576))} Mo`;
 
-module.exports = { REG_KEY, ARCH, packFileName, manifestFileName, releaseBase, findPack, overallPercent, mo };
+/**
+ * Copie un téléchargement (lecteur d'un ReadableStream : reader.read() / reader.cancel()) dans un fichier (flux
+ * d'écriture Node), sans dépasser « size » octets. onChunk(morceau, reçus) : empreinte et progression.
+ * Une erreur d'écriture (disque plein, fichier verrouillé…) est toujours écoutée : sans cela elle ferait planter
+ * le processus principal et l'attente de « drain » ne finirait jamais. Toute erreur arrête la lecture, ferme le
+ * fichier puis est renvoyée. → nombre d'octets reçus.
+ */
+async function pipeToFile(reader, out, size, onChunk = () => {}) {
+  let writeError = null;
+  let rejectFailed = () => {};
+  const failed = new Promise((_, reject) => (rejectFailed = reject));
+  failed.catch(() => {}); // pas de rejet « non géré » si personne n'attend à ce moment-là
+  out.on('error', (err) => {
+    if (!writeError) writeError = err || new Error('écriture impossible');
+    rejectFailed(writeError);
+  });
+  let received = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.length;
+      if (received > size) throw new Error('paquet plus gros que prévu');
+      if (writeError) throw writeError;
+      onChunk(value, received);
+      if (!out.write(value)) await Promise.race([new Promise((r) => out.once('drain', r)), failed]);
+    }
+    await Promise.race([new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve()))), failed]);
+    if (writeError) throw writeError;
+    return received;
+  } catch (err) {
+    try {
+      await reader.cancel(err); // arrête le téléchargement
+    } catch {
+      // flux déjà fermé ou en erreur
+    }
+    if (!out.destroyed) out.destroy();
+    // Fichier fermé avant de rendre la main (sinon il ne pourrait pas être supprimé sous Windows), 2 s au plus
+    if (!out.closed) {
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 2000);
+        out.once('close', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    }
+    throw err;
+  }
+}
+
+module.exports = { REG_KEY, ARCH, packFileName, manifestFileName, releaseBase, findPack, overallPercent, mo, pipeToFile };

@@ -368,7 +368,7 @@
           list([
             '[[Ctrl]]+[[N]] nouveau · [[Ctrl]]+[[O]] ouvrir · [[Ctrl]]+[[S]] enregistrer · [[Ctrl]]+[[Maj]]+[[S]] enregistrer sous.',
             '[[Ctrl]]+[[1]] à [[Ctrl]]+[[7]] : onglets · [[F1]] : ce guide.',
-            'Le projet en cours est gardé en brouillon : il est restauré si Agépédé est fermé sans enregistrer.',
+            'Le projet en cours est gardé en brouillon : il est restauré si Agépédé est fermé sans enregistrer (sans les mots de passe, à ressaisir).',
           ])
         );
         c.appendChild(el('h3', null, 'Problèmes fréquents'));

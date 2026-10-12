@@ -24,7 +24,9 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const { execFile, spawn } = require('node:child_process');
 const { fileURLToPath } = require('node:url');
-const APPS = require('./apps.js');
+// Catalogue. En développement (npm start), une application « soon » marquée devPreview est ouverte (aperçu) ;
+// V3Redis installé et l'installeur (scripts/build-setup.js) gardent l'état « soon ».
+const APPS = require('./apps.js').map((a) => (!app.isPackaged && a.devPreview && a.status === 'soon' ? { ...a, status: 'available', preview: true } : a));
 const Updater = require('./updater.js');
 const Platforms = require('./platforms.js');
 const Mode = require('./mode.js');
@@ -55,12 +57,19 @@ async function loadSettings() {
   }
 }
 
-async function saveSettings() {
-  const file = settingsFile();
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(settings, null, 2), 'utf8');
-  await fs.rename(tmp, file);
+// Enregistrements à la file : deux appels rapprochés ne se partagent jamais le même fichier .tmp
+let saving = Promise.resolve();
+
+function saveSettings() {
+  const run = saving.then(async () => {
+    const file = settingsFile();
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(settings, null, 2), 'utf8');
+    await fs.rename(tmp, file);
+  });
+  saving = run.catch(() => {});
+  return run;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,50 +112,36 @@ async function findMacApp(spec) {
   return null;
 }
 
-function runCommand(cmd, args, timeout = 5000) {
+function runCommand(cmd, args, timeout = 5000, env = undefined) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => resolve(err ? null : String(stdout)));
+    execFile(cmd, args, { timeout, windowsHide: true, maxBuffer: 4 * 1024 * 1024, env }, (err, stdout) => resolve(err ? null : String(stdout)));
   });
 }
 
-/** Valeurs d'une clé de registre : { nom: valeur }. */
-function parseRegValues(text) {
-  const values = {};
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const m = /^\s+(\S+)\s+REG_\w+\s+(.*)$/.exec(line);
-    if (m) values[m[1]] = m[2].trim();
+/**
+ * Windows : entrées « Applications installées », lues en un seul appel PowerShell (voir platforms.js) et
+ * partagées par les applications d'une même détection (listApps les détecte toutes en parallèle).
+ */
+let uninstallCache = null; // { at, list: Promise<[{ name, version, location, uninstall }]> }
+
+function uninstallEntries() {
+  if (!uninstallCache || Date.now() - uninstallCache.at > 5000) {
+    const list = runCommand('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', Platforms.uninstallScript()], 20000).then(Platforms.parseUninstallList);
+    uninstallCache = { at: Date.now(), list };
   }
-  return values;
+  return uninstallCache.list;
 }
 
 /**
  * Windows : cherche l'application dans « Applications installées » (clés Uninstall écrites par
- * l'installeur). Le nom affiché contient la version (« SysInfo Lite 1.0.0 ») : on compare le début.
+ * l'installeur), dans l'ordre HKCU, HKLM 64 bits, HKLM 32 bits.
  */
 async function findInRegistry(spec) {
-  const roots = [
-    'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
-    'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
-    'HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
-  ];
-  for (const root of roots) {
-    const out = await runCommand('reg', ['query', root, '/s', '/f', spec.displayName, '/d']);
-    if (!out) continue;
-    const keys = out.split(/\r?\n/).filter((l) => /^HKEY_/i.test(l.trim())).map((l) => l.trim());
-    for (const key of keys) {
-      const values = parseRegValues(await runCommand('reg', ['query', key]));
-      const name = values.DisplayName || '';
-      if (name !== spec.displayName && !name.startsWith(`${spec.displayName} `)) continue;
-      // Dossier d'installation : InstallLocation, sinon celui du désinstalleur (« "C:\…\Uninstall X.exe" /currentuser »)
-      let dir = values.InstallLocation ? values.InstallLocation.replace(/^"|"$/g, '') : null;
-      if (!dir && values.UninstallString) {
-        const m = /^"([^"]+)"/.exec(values.UninstallString) || /^(\S+)/.exec(values.UninstallString);
-        if (m) dir = path.dirname(m[1]);
-      }
-      if (!dir) continue;
-      const exe = path.join(dir, spec.exe);
-      if (await isFile(exe)) return { path: exe, version: values.DisplayVersion || null, source: 'registre' };
-    }
+  for (const item of Platforms.matchUninstall(await uninstallEntries(), spec.displayName)) {
+    const dir = Platforms.uninstallDir(item);
+    if (!dir) continue;
+    const exe = path.join(dir, spec.exe);
+    if (await isFile(exe)) return { path: exe, version: item.version || null, source: 'registre' };
   }
   return null;
 }
@@ -188,6 +183,9 @@ async function detect(entry) {
   if (entry.status !== 'available') return { installed: false };
   const manual = settings.paths[entry.id];
   if (manual && (await isLaunchable(manual))) return { installed: true, path: manual, version: null, source: 'manuel' };
+  // Développement : le code source du projet passe avant toute version installée ou compilée
+  const source = await findLocalSource(entry);
+  if (source) return { installed: true, ...source };
   if (IS_WIN && entry.windows) {
     let found = await findInRegistry(entry.windows);
     if (!found) {
@@ -253,6 +251,24 @@ function exeRunning(entry) {
   });
 }
 
+/**
+ * La copie de l'application livrée avec V3Redis (resources/apps/<id>/) tourne-t-elle ? Une copie installée à
+ * part, ouverte en même temps, n'empêche pas la désinstallation. Chemins passés par l'environnement (accents).
+ * PowerShell indisponible : repli sur le nom de l'exécutable (tasklist).
+ */
+async function bundledRunning(entry) {
+  const exe = entry.windows && entry.windows.exe;
+  if (!IS_WIN || !exe || !BUNDLE_ROOT) return false;
+  const script = [
+    "$dir = $env:V3REDIS_APP_DIR.TrimEnd('\\') + '\\'",
+    '@(Get-Process -Name $env:V3REDIS_APP_NAME -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase) }).Count',
+  ].join('\n');
+  const env = { ...process.env, V3REDIS_APP_DIR: path.join(BUNDLE_ROOT, entry.id), V3REDIS_APP_NAME: exe.replace(/\.exe$/i, '') };
+  const out = await runCommand('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], 15000, env);
+  const count = out === null ? NaN : parseInt(out.trim(), 10);
+  return Number.isInteger(count) ? count > 0 : exeRunning(entry);
+}
+
 /** Installe depuis le HUB l'application (paquet de la release de cette version), avec progression. */
 async function addApp(id) {
   const entry = findEntry(id);
@@ -280,7 +296,7 @@ async function removeApp(id) {
     noLink: true,
   });
   if (answer.response !== 0) return { ok: false, canceled: true };
-  const res = await manager.uninstall(entry, exeRunning);
+  const res = await manager.uninstall(entry, bundledRunning);
   detected.delete(id);
   return res;
 }
@@ -364,6 +380,21 @@ async function findLocalBuild(entry) {
   return null;
 }
 
+/**
+ * Développement (V3Redis lancé par npm start / npm run dev) : l'application est lancée depuis le CODE SOURCE de
+ * son projet voisin, avec l'Electron de ce projet (comme « npm start » dans son dossier). Chaque lancement montre
+ * donc les dernières modifications, sans recompiler. V3Redis installé n'est pas concerné.
+ */
+async function findLocalSource(entry) {
+  const local = entry.local;
+  if (app.isPackaged || !PROJECTS_ROOT || !local) return null;
+  const dir = path.join(PROJECTS_ROOT, local.project);
+  const dist = path.join(dir, 'node_modules', 'electron', 'dist');
+  const electron = IS_WIN ? path.join(dist, 'electron.exe') : IS_MAC ? path.join(dist, 'Electron.app', 'Contents', 'MacOS', 'Electron') : path.join(dist, 'electron');
+  if (!(await isFile(path.join(dir, 'package.json'))) || !(await isFile(electron))) return null;
+  return { path: electron, args: [dir], cwd: dir, version: await projectVersion(dir), source: 'source' };
+}
+
 /** Installeur Windows compilé dans le projet voisin (proposé quand l'application n'est pas installée). */
 async function findLocalInstaller(local) {
   if (!IS_WIN || !PROJECTS_ROOT || !local) return null;
@@ -380,11 +411,13 @@ async function listApps() {
       const state = entry.status === 'available' ? await detect(entry) : { installed: false };
       detected.set(entry.id, state);
       // Installation proposée si l'application n'est pas réellement installée (absente ou simple build local)
-      const notReallyInstalled = !state.installed || state.source === 'build';
+      const notReallyInstalled = !state.installed || state.source === 'build' || state.source === 'source';
       const installer = entry.status === 'available' && notReallyInstalled ? await findLocalInstaller(entry.local) : null;
       // Gestion depuis le HUB (Windows) : ajout depuis la release de cette version, retrait du dossier livré
       const manageable = entry.status === 'available' && manager.supported() && Boolean(Platforms.bundledEntry(entry, process.platform));
       const inBundle = manageable && (state.source === 'hub' || Boolean(await findBundled(entry)));
+      // Désinstaller : seulement si c'est bien la copie livrée avec V3Redis qui est utilisée (pas une installation à part)
+      const removable = manageable && state.installed && state.source === 'hub';
       return {
         id: entry.id,
         name: entry.name,
@@ -394,11 +427,13 @@ async function listApps() {
         accent: /^#[0-9a-f]{6}$/i.test(entry.accent || '') ? entry.accent : '#8b6dff',
         features: Array.isArray(entry.features) ? entry.features.slice(0, 6).map(String) : [],
         status: entry.status,
+        module: entry.placement === 'module', // affichée en haut (barre de titre), hors du sélecteur
+        preview: Boolean(entry.preview), // aperçu de développement (devPreview)
         canDownload: Boolean(entry.downloadUrl),
         canInstall: Boolean(installer),
         installerName: installer ? path.basename(installer) : null,
         canAdd: manageable && !inBundle && notReallyInstalled,
-        canRemove: inBundle,
+        canRemove: removable,
         // Installation en cours (une fenêtre recréée, par exemple en passant en mode Light, reprend la barre)
         installing: manager.busy() === entry.id ? manager.progress() || { id: entry.id, phase: 'prepare', percent: 0 } : null,
         ...state,
@@ -426,12 +461,13 @@ async function launch(id) {
   // qui disparaît quand le HUB se ferme. Le HUB reste donc ouvert (caché) tant qu'elle tourne.
   const fromHubMount = IS_LINUX && Boolean(process.env.APPIMAGE) && state.source === 'hub';
   // macOS : un paquet .app s'ouvre avec « open » (l'application devient indépendante du HUB)
-  const [cmd, args] = IS_MAC && /\.app$/i.test(state.path) ? ['open', [state.path]] : [state.path, []];
+  // Développement : Electron du projet + dossier du projet (code source, dernières modifications)
+  const [cmd, args] = state.source === 'source' ? [state.path, state.args || []] : IS_MAC && /\.app$/i.test(state.path) ? ['open', [state.path]] : [state.path, []];
   // Appelé par l'interface À LA FIN de l'animation de lancement : l'application démarre seulement maintenant
   return new Promise((resolve) => {
     try {
       // Processus indépendant : l'application continue après la fermeture de V3Redis
-      const child = spawn(cmd, args, { cwd: path.dirname(state.path), detached: true, stdio: 'ignore', windowsHide: false });
+      const child = spawn(cmd, args, { cwd: state.cwd || path.dirname(state.path), detached: true, stdio: 'ignore', windowsHide: false });
       child.once('error', (err) => resolve({ ok: false, error: `Lancement impossible : ${err.message}` }));
       child.once('spawn', () => {
         child.unref();
@@ -493,28 +529,47 @@ async function retreat(launchId) {
     win.setOpacity(1 - t * t * (3 - 2 * t)); // fondu adouci (~0,6 s)
     await new Promise((r) => setTimeout(r, 20));
   }
-  revived = false;
+  resetRevival();
   win.hide();
   const waiting = pendingLaunches.get(launchId);
   pendingLaunches.delete(launchId);
-  if (waiting) await waiting.shown;
+  // Rouvert pendant l'attente de la fenêtre de l'application : l'interface revient tout de suite
+  if (waiting) await Promise.race([waiting.shown, revival]);
+  // Attente d'une seconde, interrompue dès que V3Redis est rouvert
+  const pause = () => Promise.race([new Promise((r) => setTimeout(r, 1000)), revival]);
   // Linux, application livrée dans l'AppImage du HUB : on attend qu'elle se ferme (sinon ses fichiers disparaîtraient)
   if (waiting && waiting.fromHubMount) {
     let done = false;
     waiting.exited.then(() => (done = true));
-    while (!revived && !done) await new Promise((r) => setTimeout(r, 1000));
+    while (!revived && !done) await pause();
   }
   // Mise à jour en cours de téléchargement : V3Redis (caché) la termine avant de se fermer (20 min au plus)
   const deadline = Date.now() + 20 * 60 * 1000;
-  while (!revived && Updater.getStatus().state === 'downloading' && Date.now() < deadline) await new Promise((r) => setTimeout(r, 1000));
+  while (!revived && Updater.getStatus().state === 'downloading' && Date.now() < deadline) await pause();
   // Application en cours d'installation depuis le HUB : terminée (cachée) avant la fermeture
-  while (!revived && manager.busy()) await new Promise((r) => setTimeout(r, 1000));
+  while (!revived && manager.busy()) await pause();
   if (revived) return { ok: true, revived: true }; // rouvert entre-temps : on reste ouvert
   setTimeout(() => app.quit(), 50); // laisse la réponse IPC partir avant la fermeture
   return { ok: true };
 }
 
-let revived = false; // V3Redis rouvert pendant qu'il attendait, caché, de se fermer
+// V3Redis rouvert (seconde instance) pendant qu'il attendait, caché, de se fermer : revived passe à true et la
+// promesse « revival » se résout, ce qui interrompt l'attente en cours
+let revived = false;
+let revival = Promise.resolve();
+let revive = () => {
+  revived = true;
+};
+
+function resetRevival() {
+  revived = false;
+  revival = new Promise((resolve) => {
+    revive = () => {
+      revived = true;
+      resolve();
+    };
+  });
+}
 
 /** Lance l'installeur compilé localement (assistant d'installation de l'application). */
 async function install(id) {
@@ -611,7 +666,8 @@ function registerIpc() {
   // Mises à jour du paquet V3Redis (+ applications livrées)
   handle('update:status', async () => Updater.getStatus());
   handle('update:check', () => Updater.check({ manual: true }));
-  handle('update:install', () => Updater.install());
+  // Pas pendant l'installation d'une application : l'installeur fermerait V3Redis en pleine extraction
+  handle('update:install', () => Updater.install({ blocked: () => (manager.busy() ? 'Une application est en cours d\'installation : attendez la fin avant d\'installer la mise à jour.' : null) }));
   handle('update:open', async () => Updater.openReleasePage());
 }
 
@@ -663,7 +719,7 @@ function createWindow() {
   win.on('close', (event) => {
     if (!manager.busy() || win !== mainWindow) return;
     event.preventDefault();
-    revived = false;
+    resetRevival();
     win.hide();
     manager.whenIdle().then(() => {
       if (!revived && !win.isDestroyed() && !win.isVisible()) app.quit();
@@ -678,13 +734,16 @@ function createWindow() {
 }
 
 /**
- * Passe de V3Redis complet à V3Redis Light (ou l'inverse) : le choix est enregistré, puis la fenêtre est
- * recréée (le cadre d'une fenêtre ne peut pas changer une fois créée). La nouvelle s'ouvre au même endroit.
+ * Passe de V3Redis complet à V3Redis Light (ou l'inverse) : le choix est enregistré (sauf persist: false,
+ * raccourci --light / --full), puis la fenêtre est recréée (le cadre d'une fenêtre ne peut pas changer une fois
+ * créée). La nouvelle s'ouvre au même endroit.
  */
-async function setMode(mode) {
+async function setMode(mode, { persist = true } = {}) {
   if (!Mode.MODES.includes(mode)) return { ok: false, error: 'Mode inconnu.' };
-  settings.mode = mode;
-  await saveSettings();
+  if (persist) {
+    settings.mode = mode;
+    await saveSettings();
+  }
   if (mode === currentMode.mode) return { ok: true, mode };
   const old = mainWindow;
   const bounds = old && !old.isDestroyed() ? old.getBounds() : null;
@@ -710,13 +769,15 @@ if (!app.requestSingleInstanceLock()) {
     if (!mainWindow) return;
     // Raccourci « V3Redis Light » (ou --full) alors que V3Redis est ouvert dans l'autre mode : on bascule
     const wanted = argv.includes('--light') ? 'light' : argv.includes('--full') ? 'full' : null;
+    // Le choix n'est pas enregistré (comme au démarrage avec --light) : le raccourci habituel rouvre le mode choisi
     if (wanted && wanted !== currentMode.mode && mainWindow.isVisible()) {
-      setMode(wanted);
+      setMode(wanted, { persist: false });
       return;
     }
     if (!mainWindow.isVisible()) {
-      // Caché après un lancement (téléchargement de mise à jour en cours) : il réapparaît et reste ouvert
-      revived = true;
+      // Caché après un lancement (attente de la fenêtre de l'application, téléchargement d'une mise à jour…) :
+      // il réapparaît et reste ouvert
+      revive();
       mainWindow.setOpacity(1);
       mainWindow.show();
     }

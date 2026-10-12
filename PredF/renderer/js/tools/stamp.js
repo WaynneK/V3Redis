@@ -146,10 +146,17 @@ export function create() {
       n[k] = v;
       schedulePreview();
     };
-    const start = h('input', { type: 'number', min: '0', max: '99999', step: '1', value: String(n.start), class: 'num-input' });
+    const start = h('input', { type: 'number', min: '1', max: '99999', step: '1', value: String(n.start), class: 'num-input' });
+    // Champ vidé : Number('') vaut 0, la numérotation partirait de 0 ; on garde la dernière valeur valide (≥ 1)
+    const startOk = () => start.value.trim() !== '' && Number.isInteger(Number(start.value)) && Number(start.value) >= 1;
     start.addEventListener('input', () => {
-      const v = Number(start.value);
-      if (Number.isInteger(v) && v >= 0) change('start')(v);
+      start.classList.toggle('invalid', !startOk());
+      if (startOk()) change('start')(Number(start.value));
+    });
+    start.addEventListener('change', () => {
+      // En quittant le champ : la valeur réellement utilisée réapparaît
+      if (!startOk()) start.value = String(n.start);
+      start.classList.remove('invalid');
     });
     const skip = h('input', { type: 'checkbox' });
     skip.checked = n.skipFirst;

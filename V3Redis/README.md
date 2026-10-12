@@ -2,7 +2,7 @@
 
 Point d'entrée vers les applications : **SysInfo Lite**, **CalkIP**, **PredF** (fusion et conversion de PDF),
 **Agépédé** (OU et groupes Active Directory en AGDLP, pour Windows Server) et **Cours** (résumés de la formation :
-M.Julia et A.Julia).
+M.Julia, A.Julia et Microsoft Office).
 
 Ajouter une application plus tard : son projet dans un dossier voisin (ex. `..\PredF`), une entrée dans `apps.js` avec `status: 'soon'` (affichée « Bientôt disponible »), puis `'available'` quand elle est prête. La détection, le lancement et l'installeur la prennent alors en compte sans autre changement.
 
@@ -10,7 +10,7 @@ Ajouter une application plus tard : son projet dans un dossier voisin (ex. `..\P
 
 - **Fenêtre sans cadre** : l'en-tête sert de barre de titre (glisser pour déplacer), avec des boutons réduire / fermer assortis à l'interface (fermer en rouge au survol). Pas d'agrandissement ; la fenêtre reste redimensionnable par ses bords.
 - **Sombre, ciel étoilé animé** (`renderer/stars.js`, canvas) : 3 profondeurs d'étoiles en parallaxe avec la souris, scintillement, étoiles filantes, nébuleuse teintée par la couleur de l'application choisie, effet « hyperespace » au lancement. Animation en pause quand la fenêtre est cachée ; image fixe si le système demande de réduire les animations.
-- **Sélecteur interactif** : toutes les applications sont affichées côte à côte dans des boîtes (icône, accroche, état). Au survol, la boîte se soulève, s'incline et reflète la lumière sous la souris, avec une bordure à la couleur de l'application ; un **clic** la choisit (coche, panneau de détails, couleur du fond), un **double-clic** ou **Entrée** la lance. Touches 1–9 : accès direct ; Tab : navigation au clavier.
+- **Sélecteur interactif** : toutes les applications sont affichées côte à côte dans des boîtes (icône, accroche, état). Au survol, la boîte se soulève, s'incline et reflète la lumière sous la souris, avec une bordure à la couleur de l'application ; un **clic** la choisit (coche, panneau de détails, couleur du fond), un **double-clic** ou **Entrée** la lance. Touches 1–9 : accès direct ; ← → et Début / Fin : boîte précédente, suivante, première, dernière ; Tab : navigation au clavier (Entrée sur une boîte la lance).
 - **Lancement** (bouton « Lancer », double-clic ou Entrée) :
   1. **l'animation se joue en entier d'abord (2,2 s)** : saut en hyperespace maintenu, l'en-tête, les boîtes et le panneau se retirent, l'icône de l'application s'envole vers le centre, anneaux de lumière et particules en orbite, « Préparation de… » avec une barre qui se remplit ;
   2. **à la fin seulement**, éclair, « Lancement de… » et démarrage de l'application ;
@@ -138,6 +138,11 @@ livrées ne cherchent pas de mise à jour de leur côté (SysInfo Lite le détec
 - Le catalogue est dans `apps.js` : ajouter une application = ajouter une entrée (nom, description, état `available` ou `soon`, page de téléchargement, comment la retrouver sous Windows / Linux).
 - Pour chaque application, le HUB détecte si elle est installée, dans cet ordre :
   1. emplacement choisi à la main (« Déjà installé ailleurs ? Choisir… »), mémorisé dans `settings.json` du dossier utilisateur ;
+  - **développement** (`npm start` / `npm run dev`) : **code source du projet voisin**, lancé avec l'Electron de ce
+    projet (`..\Cours\node_modules\electron\dist\electron.exe ..\Cours`, comme `npm start` dans son dossier) : chaque
+    lancement montre les dernières modifications, sans recompiler (pastille « Dev · source »). Les applications
+    `devPreview` (Cours) sont ouvertes en développement seulement. Une fenêtre de l'application déjà ouverte reprend la
+    main (une seule instance) : la fermer avant de relancer ;
   2. **Windows** : « Applications installées » (registre, clés écrites par l'installeur), qui donne aussi la version ; **Linux** : AppImage dans `~/Applications`, `~/Bureau`, `~/Desktop`, `~/Téléchargements`, `~/Downloads`, `~/.local/bin` (et un niveau de sous-dossiers) ;
   3. **Windows** : dossier par défaut de l'installeur (`%LOCALAPPDATA%\Programs\<Nom>`) ;
   4. **version compilée dans le dossier du projet voisin** (même dossier parent que le HUB, ex. `..\CalkIP\dist\win-unpacked\CalkIP.exe` ou la version portable) : affichée « Prêt à lancer ». Si l'installeur compilé est présent (`..\CalkIP\dist\CalkIP-Setup-x.y.z.exe`), un bouton **Installer** le lance. Le HUB refait la détection quand on revient dans sa fenêtre. HUB empaqueté : indiquer le dossier des projets dans la variable d'environnement `HUB_PROJECTS_DIR`.

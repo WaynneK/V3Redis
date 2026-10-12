@@ -1,13 +1,14 @@
 /*
  * course.js — Outils de l'application Cours, sans dépendance ni accès système.
- * Chargé par la page (<script>, objet global « Course ») et par les tests (require).
+ * Chargé par la page (<script>, objet global « Course »), par le processus principal et par les tests (require).
  *
- *   validate(content)     contrôle du fichier de contenu (identifiants, couleurs, blocs connus)
- *   richTokens(text)      **gras** et `code` → [{ type: 'text' | 'b' | 'code', text }]
- *   isReady(chapter)      le chapitre a-t-il un résumé ?
- *   partStats(part, read) chapitres, résumés disponibles, chapitres lus
- *   search(parts, query)  recherche sans tenir compte des accents ni de la casse, avec extrait
- *   neighbours(part, id)  chapitres précédent et suivant
+ *   validate(content)            contrôle de lib/content.js (identifiants, couleurs, informations des PDF)
+ *   titleFromFile(name)          « 01 - Adressage IP.pdf » → « Adressage IP »
+ *   mergeDocuments(part, files)  PDF trouvés dans le dossier de la partie + informations de content.js
+ *   search(parts, query)         recherche dans les titres et descriptions (accents et casse ignorés)
+ *   sections(signets)            sommaire d'un résumé (signets du PDF), codes A1 / 2.3 repérés
+ *   pdfDate(« D:2026… »)         date enregistrée dans un PDF → millisecondes
+ *   formatSize(octets)           « 1,2 Mo »
  */
 (function (root, factory) {
   const api = factory();
@@ -16,7 +17,6 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const BLOCKS = ['p', 'list', 'steps', 'table', 'code', 'note', 'warn'];
   const str = (v) => (v === undefined || v === null ? '' : String(v));
 
   /** Clé de comparaison : sans accents, sans casse, espaces réduits. */
@@ -24,145 +24,142 @@
     return str(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   }
 
-  /** « **gras** et `code` » → morceaux à afficher (aucun HTML : la page crée elle-même les éléments). */
-  function richTokens(text) {
-    const out = [];
-    for (const part of str(text).split(/(\*\*[^*]+\*\*|`[^`]+`)/)) {
-      if (!part) continue;
-      if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) out.push({ type: 'b', text: part.slice(2, -2) });
-      else if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) out.push({ type: 'code', text: part.slice(1, -1) });
-      else out.push({ type: 'text', text: part });
-    }
-    return out;
+  /** Nom de fichier → titre lisible : sans extension, sans numéro d'ordre en tête, « _ » remplacés par des espaces. */
+  function titleFromFile(name) {
+    const base = str(name).replace(/\.pdf$/i, '').replace(/[_]+/g, ' ');
+    const cleaned = base.replace(/^\s*\d+\s*[-–—.)_ ]\s*/, '').trim();
+    return cleaned || base.trim();
   }
 
-  const plain = (text) => richTokens(text).map((t) => t.text).join('');
+  /** Nom de fichier PDF acceptable (pas de chemin, pas de caractères de contrôle). */
+  const isPdfName = (name) => typeof name === 'string' && /\.pdf$/i.test(name) && !/[\\/:*?"<>|\u0000-\u001f]/.test(name);
 
-  function blockKind(block) {
-    if (!block || typeof block !== 'object') return null;
-    const keys = Object.keys(block).filter((k) => BLOCKS.includes(k));
-    return keys.length === 1 ? keys[0] : null;
-  }
+  const LOGOS = ['microsoft']; // logos de partie dessinés par la page (renderer/app.js)
 
-  /** Texte brut d'un bloc (recherche). */
-  function blockText(block) {
-    const kind = blockKind(block);
-    const v = kind ? block[kind] : '';
-    if (kind === 'list' || kind === 'steps') return (Array.isArray(v) ? v : []).map(plain).join(' ');
-    if (kind === 'table') return [...(v.head || []), ...(v.rows || []).flat()].map(plain).join(' ');
-    return plain(v);
-  }
-
-  const isReady = (chapter) => Boolean(chapter && Array.isArray(chapter.sections) && chapter.sections.length);
-
-  /** Tout le texte d'un chapitre, morceau par morceau (titre, points clés, sections). */
-  function chapterChunks(chapter) {
-    const chunks = [str(chapter.title), str(chapter.subtitle), ...(chapter.keyPoints || []).map(plain)];
-    for (const s of chapter.sections || []) {
-      chunks.push(str(s.title));
-      for (const b of s.blocks || []) chunks.push(blockText(b));
-    }
-    return chunks.filter(Boolean);
-  }
-
-  /** Contrôle du contenu : renvoie la liste des problèmes (vide si tout va bien). */
   function validate(content) {
     const errors = [];
     const parts = content && Array.isArray(content.parts) ? content.parts : null;
     if (!parts || !parts.length) return ['Aucune partie dans le contenu.'];
-    const partIds = new Set();
+    const ids = new Set();
     parts.forEach((p, i) => {
       const where = `Partie ${i + 1}${p && p.name ? ` (${p.name})` : ''}`;
       if (!p || typeof p !== 'object') return errors.push(`${where} : invalide.`);
       if (!/^[a-z0-9-]+$/.test(str(p.id))) errors.push(`${where} : identifiant invalide (lettres minuscules, chiffres, tirets).`);
-      else if (partIds.has(p.id)) errors.push(`${where} : identifiant « ${p.id} » en double.`);
-      partIds.add(p.id);
+      else if (ids.has(p.id)) errors.push(`${where} : identifiant « ${p.id} » en double.`);
+      ids.add(p.id);
       if (!str(p.name).trim()) errors.push(`${where} : nom manquant.`);
       if (!/^#[0-9a-f]{6}$/i.test(str(p.accent))) errors.push(`${where} : couleur invalide (forme #rrggbb).`);
-      const chapters = Array.isArray(p.chapters) ? p.chapters : [];
-      if (!chapters.length) errors.push(`${where} : aucun chapitre.`);
-      const ids = new Set();
-      chapters.forEach((c, j) => {
-        const cw = `${where}, chapitre ${j + 1}${c && c.title ? ` (${c.title})` : ''}`;
-        if (!c || typeof c !== 'object') return errors.push(`${cw} : invalide.`);
-        if (!/^[a-z0-9-]+$/.test(str(c.id))) errors.push(`${cw} : identifiant invalide.`);
-        else if (ids.has(c.id)) errors.push(`${cw} : identifiant « ${c.id} » en double.`);
-        ids.add(c.id);
-        if (!str(c.title).trim()) errors.push(`${cw} : titre manquant.`);
-        if (c.keyPoints !== undefined && !Array.isArray(c.keyPoints)) errors.push(`${cw} : keyPoints doit être une liste.`);
-        (Array.isArray(c.sections) ? c.sections : []).forEach((s, k) => {
-          const sw = `${cw}, section ${k + 1}`;
-          if (!s || !str(s.title).trim()) errors.push(`${sw} : titre manquant.`);
-          (s && Array.isArray(s.blocks) ? s.blocks : []).forEach((b, n) => {
-            const kind = blockKind(b);
-            if (!kind) errors.push(`${sw}, bloc ${n + 1} : type inconnu (attendu : ${BLOCKS.join(', ')}).`);
-            else if ((kind === 'list' || kind === 'steps') && !Array.isArray(b[kind])) errors.push(`${sw}, bloc ${n + 1} : « ${kind} » doit être une liste.`);
-            else if (kind === 'table' && !(b.table && Array.isArray(b.table.rows))) errors.push(`${sw}, bloc ${n + 1} : tableau sans lignes (rows).`);
-          });
-        });
+      if (p.logo !== undefined && !LOGOS.includes(p.logo)) errors.push(`${where} : logo inconnu (${LOGOS.join(', ')}).`);
+      if (p.documents !== undefined && !Array.isArray(p.documents)) errors.push(`${where} : « documents » doit être une liste.`);
+      const files = new Set();
+      (Array.isArray(p.documents) ? p.documents : []).forEach((d, j) => {
+        const dw = `${where}, document ${j + 1}`;
+        if (!d || !isPdfName(d.file)) errors.push(`${dw} : « file » doit être un nom de fichier .pdf (sans dossier).`);
+        else if (files.has(d.file.toLowerCase())) errors.push(`${dw} : « ${d.file} » en double.`);
+        else files.add(d.file.toLowerCase());
       });
     });
     return errors;
   }
 
-  /** { chapters, ready, read } d'une partie ; read : Set des clés « partie/chapitre » déjà lues. */
-  function partStats(part, read) {
-    const chapters = part.chapters || [];
-    const r = read instanceof Set ? read : new Set(read || []);
-    return {
-      chapters: chapters.length,
-      ready: chapters.filter(isReady).length,
-      read: chapters.filter((c) => r.has(`${part.id}/${c.id}`)).length,
-    };
+  /**
+   * PDF trouvés dans le dossier de la partie ([{ file, size, mtime, pdfSubject? }]) + informations de
+   * content.js → documents affichés, rangés par nom de fichier (ordre naturel : « 2 » avant « 10 »).
+   */
+  function mergeDocuments(part, files) {
+    const extra = new Map((Array.isArray(part.documents) ? part.documents : []).filter((d) => d && isPdfName(d.file)).map((d) => [d.file.toLowerCase(), d]));
+    return (Array.isArray(files) ? files : [])
+      .filter((f) => f && isPdfName(f.file))
+      .sort((a, b) => a.file.localeCompare(b.file, 'fr', { numeric: true, sensitivity: 'base' }))
+      .map((f) => {
+        const x = extra.get(f.file.toLowerCase()) || {};
+        return {
+          partId: part.id,
+          file: f.file,
+          // Le titre enregistré dans un PDF est souvent inutilisable (« Microsoft Word - doc1.docx ») : le nom du fichier passe avant
+          title: str(x.title).trim() || titleFromFile(f.file),
+          description: str(x.description).trim() || str(f.pdfSubject).trim(),
+          author: str(x.author).trim(), // sinon : auteur enregistré dans le PDF (lu avec l'aperçu)
+          size: Number(f.size) || 0,
+          mtime: Number(f.mtime) || 0,
+        };
+      });
   }
 
-  /** Extrait d'environ « width » caractères autour de la première occurrence. */
-  function snippet(text, query, width = 110) {
-    const t = str(text).replace(/\s+/g, ' ').trim();
-    const i = fold(t).indexOf(fold(query)); // fold garde la longueur pour les lettres latines courantes
-    if (i < 0) return t.slice(0, width) + (t.length > width ? '…' : '');
-    const start = Math.max(0, i - Math.floor((width - query.length) / 2));
-    const end = Math.min(t.length, start + width);
-    return (start > 0 ? '…' : '') + t.slice(start, end) + (end < t.length ? '…' : '');
+  const MAX_SECTIONS = 40; // par niveau : un sommaire reste lisible
+
+  /** « A1Les définitions » / « 2.3 DNS » / « 2. DNS » → { code, title } (pas de code : code vide). */
+  function splitCode(title) {
+    const t = str(title).replace(/\s+/g, ' ').trim();
+    const m =
+      /^([A-Z]\d{1,2})(?=[\s.:)–—-]|[A-ZÀ-Ý])[\s.:)–—-]*(.+)$/.exec(t) || // A1, B12
+      /^(\d{1,2}(?:\.\d{1,2})+)\.?\s+(.+)$/.exec(t) || // 2.3
+      /^(\d{1,2})(?:[.)]\s*|\s+[–—-]\s+)(.+)$/.exec(t); // 2. / 2) / 2 - (« 3 types » reste un titre)
+    return m ? { code: m[1], title: m[2].trim() } : { code: '', title: t };
   }
 
   /**
-   * Recherche dans toutes les parties : chaque mot doit apparaître dans le chapitre (accents et casse ignorés).
-   * → [{ partId, chapterId, title, partName, snippet, score }] ; titres trouvés d'abord.
+   * Sommaire d'un résumé à partir des signets du PDF : [{ title, page, items?: [{ title, page }] }]
+   * → [{ code, title, page, items: [{ code, title, page }] }] (deux niveaux).
+   * Codes repérés en tête des titres (« A1 », « 2.3 ») ; une partie sans code prend la lettre commune de ses
+   * sections (A1, A2… → A). La page de garde (page 1, sans sections, à côté de parties qui en ont) est retirée.
+   */
+  function sections(outline) {
+    const pageOf = (p) => (Number.isInteger(Number(p)) && Number(p) >= 1 ? Number(p) : null);
+    const clean = (list, depth) =>
+      (Array.isArray(list) ? list : [])
+        .filter((o) => o && str(o.title).trim())
+        .slice(0, MAX_SECTIONS)
+        .map((o) => {
+          const { code, title } = splitCode(o.title);
+          const items = depth ? [] : clean(o.items, depth + 1);
+          let c = code;
+          if (!c && items.length) {
+            const letters = new Set(items.map((i) => (/^[A-Z](?=\d)/.exec(i.code) || [''])[0]));
+            if (letters.size === 1 && !letters.has('')) c = [...letters][0];
+          }
+          return { code: c, title, page: pageOf(o.page), items };
+        });
+    const top = clean(outline, 0);
+    const structured = top.some((o) => o.items.length);
+    return top.filter((o) => !(structured && o.page === 1 && !o.items.length));
+  }
+
+  /** Date enregistrée dans un PDF (« D:20261010150248+02'00' ») → millisecondes, ou null. */
+  function pdfDate(value) {
+    const m = /^(?:D:)?(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?([Zz+-])?(\d{2})?'?(\d{2})?/.exec(str(value).trim());
+    if (!m) return null;
+    const [y, mo = '01', d = '01', hh = '00', mi = '00', ss = '00'] = m.slice(1, 7);
+    let t = Date.UTC(+y, +mo - 1, +d, +hh, +mi, +ss);
+    if (m[7] === '+' || m[7] === '-') t -= (m[7] === '+' ? 1 : -1) * ((+m[8] || 0) * 60 + (+m[9] || 0)) * 60000;
+    return Number.isFinite(t) ? t : null;
+  }
+
+  /** « 1,2 Mo », « 340 Ko » */
+  function formatSize(bytes) {
+    const n = Number(bytes) || 0;
+    if (n >= 1048576) return `${(n / 1048576).toFixed(1).replace('.', ',')} Mo`;
+    return `${Math.max(1, Math.round(n / 1024))} Ko`;
+  }
+
+  /**
+   * Recherche : chaque mot doit apparaître dans le titre, la description, le nom du fichier ou la partie.
+   * parts : [{ id, name, description, documents: [document affiché] }] → [{ partId, file, title, … , score }].
    */
   function search(parts, query) {
-    const words = fold(query).split(' ').filter((w) => w.length > 0);
+    const words = fold(query).split(' ').filter(Boolean);
     if (!words.length) return [];
     const out = [];
     for (const p of parts || []) {
-      for (const c of p.chapters || []) {
-        const chunks = chapterChunks(c);
-        const hay = fold([p.name, p.description, ...chunks].join(' '));
+      for (const d of p.documents || []) {
+        const hay = fold([d.title, d.description, d.author, d.file, p.name, p.description].join(' '));
         if (!words.every((w) => hay.includes(w))) continue;
-        const titleHay = fold(`${c.title} ${str(c.subtitle)}`);
-        const score = words.filter((w) => titleHay.includes(w)).length * 10 + (isReady(c) ? 1 : 0);
-        // Extrait : le morceau qui contient le plus de mots cherchés (à égalité, le plus long : du texte plutôt qu'un titre)
-        let hit = chunks[0] || '';
-        let best = -1;
-        for (const ch of chunks) {
-          const n = words.filter((w) => fold(ch).includes(w)).length;
-          if (n > best || (n === best && n > 0 && ch.length > hit.length)) {
-            best = n;
-            hit = ch;
-          }
-        }
-        const anchor = words.find((w) => fold(hit).includes(w)) || words[0];
-        out.push({ partId: p.id, chapterId: c.id, title: c.title, partName: p.name, snippet: snippet(hit, anchor), score });
+        const score = words.filter((w) => fold(d.title).includes(w)).length * 10 + words.filter((w) => fold(d.description).includes(w)).length;
+        out.push({ ...d, partName: p.name, score });
       }
     }
-    return out.sort((a, b) => b.score - a.score);
+    return out.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title, 'fr'));
   }
 
-  function neighbours(part, chapterId) {
-    const list = (part && part.chapters) || [];
-    const i = list.findIndex((c) => c.id === chapterId);
-    return { prev: i > 0 ? list[i - 1] : null, next: i >= 0 && i < list.length - 1 ? list[i + 1] : null, index: i };
-  }
-
-  return { BLOCKS, fold, richTokens, plain, blockKind, isReady, chapterChunks, validate, partStats, snippet, search, neighbours };
+  return { fold, titleFromFile, isPdfName, validate, mergeDocuments, splitCode, sections, pdfDate, formatSize, search };
 });

@@ -1,0 +1,4 @@
+Résumés PDF de Cours : un dossier par partie (m-julia, a-julia, office).
+Déposez un PDF dans le dossier de sa partie : il apparaît tout seul dans l'application.
+Un numéro en tête du nom choisit l'ordre : « 01 - Adressage IP.pdf » s'affiche « Adressage IP ».
+Titre et description peuvent être précisés dans lib/content.js.

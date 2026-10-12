@@ -123,9 +123,11 @@ dsquery * [{<NœudDeDépart> | forestroot | domainroot}] [-scope {subtree | onel
 - `domainroot` est le nœud de départ par défaut. `dsquery * domainroot -scope base` renvoie donc le DN du domaine. `detectEnvironment()` s'en sert quand l'outil est présent.
 - Par défaut, `dsquery` renvoie au plus 100 résultats. `-limit 0` les renvoie tous.
 
-Tests générés : la commande réussit (code 0 et une ligne de DN) **seulement si l'objet existe**.
+Tests générés : la commande réussit (code 0 et une ligne de DN) **seulement si l'objet existe et est du bon type** (OU, utilisateur ou groupe). Un groupe déjà présent au DN d'un utilisateur à créer ne compte pas comme « déjà fait » : `dsadd` échoue alors et l'étape est en erreur.
 ```
-dsquery * "OU=Compta,OU=Paris,DC=lab,DC=local" -scope base 2>nul | findstr "="
+dsquery * "OU=Compta,OU=Paris,DC=lab,DC=local" -scope base -filter "(objectClass=organizationalUnit)" 2>nul | findstr "="
+dsquery * "CN=Jean Dupont,…" -scope base -filter "(&(objectCategory=person)(objectClass=user))" 2>nul | findstr "="
+dsquery * "CN=GG_Compta,…" -scope base -filter "(objectCategory=group)" 2>nul | findstr "="
 ```
 Appartenance déjà en place, via un filtre LDAP sur `memberOf` :
 ```
@@ -233,12 +235,17 @@ Source : [Name computers, domains, sites, and OUs (KB 909264)](https://learn.mic
 | `ou` | `/` et `\` (séparateurs de chemin) | ≤ 64 |
 | `group` | caractères interdits du sAMAccountName, `@` | ≤ 64 (attribut `cn`) ; **avertissement au-delà de 20** (pré-Windows 2000) |
 | `user` | idem | ≤ 20 : un nom d'ouverture de session pré-Windows 2000 ne peut pas être plus long |
-| `person` (prénom, nom) | caractères de « toutes saisies » | ≤ 64 (nom affiché « Prénom Nom » aussi) |
-| mot de passe (`validatePassword`) | `"` `%`, retours ligne, espaces en tête ou en fin | ≤ 127 |
+| `person` (prénom, nom) | caractères de « toutes saisies », `\` final | ≤ 64 (nom affiché « Prénom Nom » aussi) |
+| mot de passe (`validatePassword`) | `"` `%`, `\` final, `*` seul, retours ligne, espaces en tête ou en fin | ≤ 127 |
 | `path` | `* ? /`, chemin relatif, racine de lecteur, `.` ou `..` | ≤ 240 |
 | `desc` | `"` `%` `!` | ≤ 1024 |
+| DN du domaine | tout composant autre que `DC=` + lettres, chiffres, tirets | |
 
 Sont autorisés : accents, espaces, `-`, `_`, `.` et parenthèses. Les parenthèses dans un nom de compte donnent un avertissement.
+
+Un `\` final juste avant le guillemet fermant (`-pwd "Azerty12\"`) se lit comme un guillemet littéral et avale la suite de la ligne : il est refusé dans les mots de passe et les prénoms / noms. Dans une description, il est accepté et doublé dans la commande (`-desc "Partage D:\Compta\\"` donne `Partage D:\Compta\`). Un mot de passe `*` seul ferait demander le mot de passe au clavier par `dsadd`.
+
+Garde-fou de `lib/runner.js` : avant de lancer quoi que ce soit (simulation comprise), chaque étape est contrôlée (DN sans `"` ni `%`, une seule ligne, guillemets appariés). Une étape suspecte bloque toute l'exécution.
 
 Pourquoi ces caractères sont interdits dans cmd.exe :
 - `"` ferme l'argument.

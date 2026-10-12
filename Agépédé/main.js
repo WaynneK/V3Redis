@@ -174,20 +174,41 @@ async function openProject() {
   return { ok: true, project, filePath, name: projectBaseName(filePath) };
 }
 
+/** Confirmation native avant de remplacer un fichier qui n'a pas été choisi dans une boîte de dialogue. */
+async function confirmReplace(filePath) {
+  const res = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    title: 'Enregistrer le projet',
+    message: `${path.basename(filePath)} existe déjà.`,
+    detail: `Voulez-vous le remplacer ?\n${filePath}`,
+    buttons: ['Remplacer', 'Annuler'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return res.response === 0;
+}
+
 async function saveProject(req) {
   const project = cleanProject(req && req.project);
   let filePath = req && !req.saveAs && isKnown(req.filePath) ? req.filePath : null;
   if (!filePath) {
-    const suggested = req && typeof req.filePath === 'string' && req.filePath ? req.filePath : null;
+    let suggested = req && typeof req.filePath === 'string' && req.filePath && path.isAbsolute(req.filePath) ? req.filePath : null;
+    // Nom proposé toujours avec l'extension du projet (un projet ouvert depuis « x.txt » propose « x.agepede.json »)
+    if (suggested && !/\.json$/i.test(suggested)) suggested = suggested.replace(/\.[^.\\/]*$/, '') + PROJECT_EXT;
     filePath = await askSavePath({
       title: 'Enregistrer le projet',
       defaultName: `${safeName((req && req.name) || (project.domain && project.domain.dns) || 'projet')}${PROJECT_EXT}`,
-      defaultPath: suggested && path.isAbsolute(suggested) ? suggested : undefined,
+      defaultPath: suggested || undefined,
       filters: [{ name: 'Projet Agépédé', extensions: ['agepede.json'] }],
     });
     if (!filePath) return { ok: false, canceled: true };
   }
-  if (!/\.json$/i.test(filePath)) filePath += PROJECT_EXT;
+  if (!/\.json$/i.test(filePath)) {
+    filePath += PROJECT_EXT;
+    // Extension ajoutée après la boîte de dialogue : ce fichier-là n'a pas été choisi, on demande avant de le remplacer
+    if (!isKnown(filePath) && fs.existsSync(filePath) && !(await confirmReplace(filePath))) return { ok: false, canceled: true };
+  }
   await writeFileSafe(filePath, `${JSON.stringify(project, null, 2)}\n`);
   return { ok: true, filePath, name: projectBaseName(filePath) };
 }
@@ -196,7 +217,8 @@ async function saveProject(req) {
 // CSV, script, journal
 // ---------------------------------------------------------------------------
 
-const TABLE_NAMES = { ous: 'OU', globals: 'Groupes-globaux', locals: 'Groupes-domaine-local', permissions: 'Permissions' };
+// Un suffixe de fichier par tableau (OU, utilisateurs, groupes, dossiers, permissions) : défini avec les colonnes CSV
+const TABLE_NAMES = Agdlp.TABLE_FILE_NAMES;
 
 async function importCsv(table) {
   if (!TABLE_NAMES[table]) throw new Error('Tableau inconnu.');
@@ -265,7 +287,8 @@ async function exportLog(req) {
     filters: [{ name: 'Texte', extensions: ['txt'] }],
   });
   if (!filePath) return { ok: false, canceled: true };
-  await writeFileSafe(filePath, BOM + withCrlf(text)); // BOM : accents lisibles dans le Bloc-notes
+  // Mots de passe masqués (-pwd "****") même si la page les a laissés ; BOM : accents lisibles dans le Bloc-notes
+  await writeFileSafe(filePath, BOM + withCrlf(Agdlp.maskPasswords(text)));
   return { ok: true, filePath };
 }
 
@@ -376,9 +399,12 @@ async function startRun(req) {
   const env = await detectEnv();
   const counts = countSteps(steps);
   if (!env.fake) {
+    // Outils exigés selon les étapes : un projet « dossiers et droits » seul n'a pas besoin de RSAT
+    const need = Agdlp.toolsNeeded(steps);
+    const tools = env.tools || {};
     if (!env.isWindows) return { ok: false, error: "L'exécution n'est possible que sous Windows (contrôleur de domaine ou poste avec RSAT)." };
-    if (!env.tools || !env.tools.dsadd || !env.tools.dsquery || !env.tools.dsmod) return { ok: false, error: 'Outils Active Directory introuvables (dsadd, dsmod, dsquery) : installez RSAT « Outils AD DS » ou lancez Agépédé sur un contrôleur de domaine.' };
-    if ((counts.acl > 0 || counts.folder > 0 || counts.inherit > 0) && !(env.tools && env.tools.icacls)) return { ok: false, error: 'icacls introuvable : impossible d\'appliquer les permissions.' };
+    if (need.ds && (!tools.dsadd || !tools.dsquery || !tools.dsmod)) return { ok: false, error: 'Outils Active Directory introuvables (dsadd, dsmod, dsquery) : installez RSAT « Outils AD DS » ou lancez Agépédé sur un contrôleur de domaine.' };
+    if (need.icacls && !tools.icacls) return { ok: false, error: 'icacls introuvable : impossible d\'appliquer les permissions.' };
   }
 
   if (!dryRun) {

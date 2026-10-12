@@ -79,6 +79,8 @@ export function create() {
     result.replaceChildren();
     const file = state.file;
     const level = LEVELS.find((l) => l.id === state.level);
+    // Le fichier a changé pendant le traitement (fermé, remplacé) : le résultat ne lui correspond plus
+    const stale = () => state.file !== file;
     let res;
     if (level.id === 'lossless') {
       busy.start('Réécriture du fichier…');
@@ -93,24 +95,28 @@ export function create() {
       busy.start('Compression…', { cancellable: true });
       try {
         for (let i = 0; i < file.pageCount; i++) {
-          if (busy.canceled) {
-            await api.rasterCancel(job.id);
-            return;
-          }
+          if (busy.canceled || stale()) return;
           busy.progress(i, file.pageCount, `Page ${i + 1} sur ${file.pageCount}…`);
           const img = await renderToImage(file.id, i, { dpi: level.dpi, type: 'image/jpeg', quality: level.quality });
+          if (stale()) return;
           const added = await api.rasterAdd(job.id, img.bytes, img.widthPt, img.heightPt);
           if (!check(added)) return;
         }
+        if (stale()) return;
         busy.progress(file.pageCount, file.pageCount, 'Assemblage…');
         res = await api.rasterFinish(job.id, { title: file.info && file.info.title, author: file.info && file.info.author });
       } catch (err) {
-        await api.rasterCancel(job.id);
         toast(`Compression impossible : ${err.message}`, 'error');
         return;
       } finally {
+        // Toute sortie sans résultat (annulation, erreur, fichier changé) libère le travail en cours
+        if (!res) api.rasterCancel(job.id).catch(() => {});
         busy.end();
       }
+    }
+    if (stale()) {
+      if (res && res.ok) api.releasePending(res.id);
+      return;
     }
     if (!check(res)) return;
     state.output = { ...res, level: level.id };

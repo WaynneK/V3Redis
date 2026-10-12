@@ -66,12 +66,19 @@
     return list.flatMap((t) => parseToken(t, count));
   }
 
-  /** Groupes : chaque élément séparé par une virgule devient un fichier (« 1-3, 4-8, 9 » → 3 fichiers). */
+  /**
+   * Groupes : chaque élément séparé par une virgule devient un fichier (« 1-3, 4-8, 9 » → 3 fichiers).
+   * Un groupe sans page (« paires » sur un document d'une page) est refusé : il donnerait un fichier vide.
+   */
   function parseGroups(text, count) {
     if (!Number.isInteger(count) || count < 1) throw new RangeError_('Le document ne contient aucune page.');
     const list = tokens(text);
     if (!list.length) throw new RangeError_('Indiquez au moins une plage de pages (ex. 1-3, 4-8, 9).');
-    return list.map((t) => parseToken(t, count));
+    return list.map((t) => {
+      const group = parseToken(t, count);
+      if (!group.length) throw new RangeError_(`« ${t} » : aucune page de ce document ne correspond.`);
+      return group;
+    });
   }
 
   /** Découpe toutes les n pages. */
