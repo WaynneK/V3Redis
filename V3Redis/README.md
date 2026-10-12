@@ -10,7 +10,8 @@ Ajouter une application plus tard : son projet dans un dossier voisin (ex. `..\P
 
 - **Fenêtre sans cadre** : l'en-tête sert de barre de titre (glisser pour déplacer), avec des boutons réduire / fermer assortis à l'interface (fermer en rouge au survol). Pas d'agrandissement ; la fenêtre reste redimensionnable par ses bords.
 - **Sombre, ciel étoilé animé** (`renderer/stars.js`, canvas) : 3 profondeurs d'étoiles en parallaxe avec la souris, scintillement, étoiles filantes, nébuleuse teintée par la couleur de l'application choisie, effet « hyperespace » au lancement. Animation en pause quand la fenêtre est cachée ; image fixe si le système demande de réduire les animations.
-- **Sélecteur interactif** : toutes les applications sont affichées côte à côte dans des boîtes (icône, accroche, état). Au survol, la boîte se soulève, s'incline et reflète la lumière sous la souris, avec une bordure à la couleur de l'application ; un **clic** la choisit (coche, panneau de détails, couleur du fond), un **double-clic** ou **Entrée** la lance. Touches 1–9 : accès direct ; ← → et Début / Fin : boîte précédente, suivante, première, dernière ; Tab : navigation au clavier (Entrée sur une boîte la lance).
+- **Modules** : les applications marquées `placement: 'module'` dans `apps.js` (SysInfo Lite) sont en haut, dans la barre de titre (icône, nom, point d'état) : clic pour les choisir, double-clic pour les lancer. Le sélecteur garde ainsi de la place pour les autres applications.
+- **Sélecteur interactif** : les autres applications sont affichées côte à côte dans des boîtes (icône, accroche, état). Au survol, la boîte se soulève, s'incline et reflète la lumière sous la souris, avec une bordure à la couleur de l'application ; un **clic** la choisit (coche, panneau de détails, couleur du fond), un **double-clic** ou **Entrée** la lance. Touches 1–9 : accès direct ; ← → et Début / Fin : boîte précédente, suivante, première, dernière ; Tab : navigation au clavier (Entrée sur une boîte la lance).
 - **Lancement** (bouton « Lancer », double-clic ou Entrée) :
   1. **l'animation se joue en entier d'abord (2,2 s)** : saut en hyperespace maintenu, l'en-tête, les boîtes et le panneau se retirent, l'icône de l'application s'envole vers le centre, anneaux de lumière et particules en orbite, « Préparation de… » avec une barre qui se remplit ;
   2. **à la fin seulement**, éclair, « Lancement de… » et démarrage de l'application ;
@@ -141,7 +142,7 @@ livrées ne cherchent pas de mise à jour de leur côté (SysInfo Lite le détec
   - **développement** (`npm start` / `npm run dev`) : **code source du projet voisin**, lancé avec l'Electron de ce
     projet (`..\Cours\node_modules\electron\dist\electron.exe ..\Cours`, comme `npm start` dans son dossier) : chaque
     lancement montre les dernières modifications, sans recompiler (pastille « Dev · source »). Les applications
-    `devPreview` (Cours) sont ouvertes en développement seulement. Une fenêtre de l'application déjà ouverte reprend la
+    `soon` marquées `devPreview` sont ouvertes en développement seulement (aperçu avant leur sortie). Une fenêtre de l'application déjà ouverte reprend la
     main (une seule instance) : la fermer avant de relancer ;
   2. **Windows** : « Applications installées » (registre, clés écrites par l'installeur), qui donne aussi la version ; **Linux** : AppImage dans `~/Applications`, `~/Bureau`, `~/Desktop`, `~/Téléchargements`, `~/Downloads`, `~/.local/bin` (et un niveau de sous-dossiers) ;
   3. **Windows** : dossier par défaut de l'installeur (`%LOCALAPPDATA%\Programs\<Nom>`) ;

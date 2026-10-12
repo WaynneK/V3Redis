@@ -685,10 +685,106 @@ body[data-view='part'] .main {
 
 .cp-text {
   display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.cp-label {
+  display: flex;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
-  line-height: 1.35;
+}
+
+/* Vignette d'un cours : son icône (content.js : icon) sur la couleur de sa partie */
+.course-art {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 11px;
+  background:
+    radial-gradient(circle at 28% 18%, color-mix(in srgb, var(--part) 70%, #fff) 0%, transparent 55%),
+    linear-gradient(150deg, var(--part), color-mix(in srgb, var(--part) 55%, #000));
+  color: #fff;
+}
+
+.course-art .art-icon {
+  width: 56%;
+  height: 56%;
+  stroke-width: 1.8;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
+}
+
+.course-art.small {
+  width: 38px;
+  height: 38px;
+}
+
+.course-art.large {
+  width: 240px;
+  aspect-ratio: 1;
+  border-radius: 30px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25); /* pas de lueur sous la vignette */
+}
+
+.course-art.large .art-icon {
+  width: 50%;
+  height: 50%;
+  stroke-width: 1.5;
+}
+
+.thumb-btn.art .thumb-hover {
+  border-radius: 30px;
+}
+
+/* Résultat de recherche : nom de la partie, cliquable (ouvre le cours dans sa partie) */
+button.d-part {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+button.d-part:hover {
+  text-decoration: underline;
+}
+
+/* Vignette dans les résultats de recherche (même place que l'aperçu d'un PDF) */
+.course-art.mid {
+  width: 112px;
+  aspect-ratio: 1;
+  border-radius: 18px;
+}
+
+.thumb-btn:disabled {
+  cursor: default;
+}
+
+/* Cours annoncé, fichiers à venir */
+.thumb-tag.soon {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.cp-soon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 10px 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.cp-soon svg {
+  width: 16px;
+  height: 16px;
+  color: var(--part);
 }
 
 .cp-text strong {
@@ -698,6 +794,12 @@ body[data-view='part'] .main {
   font-weight: 600;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.cp-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap; /* une seule ligne, même en fenêtre étroite */
 }
 
 .cp-text small,
@@ -774,19 +876,19 @@ body[data-view='part'] .main {
   max-width: 1100px;
 }
 
-.cp-hero .thumb-btn {
+.cp-hero > .thumb-btn {
   position: sticky;
   top: 0;
   align-self: start;
 }
 
-.cp-hero .thumb {
+.cp-hero > .thumb-btn .thumb {
   width: 240px;
   border-radius: 10px;
   box-shadow: 0 22px 44px -24px rgba(0, 0, 0, 0.7);
 }
 
-.cp-hero .thumb svg {
+.cp-hero > .thumb-btn .thumb svg {
   width: 40px;
   height: 40px;
 }
@@ -1083,6 +1185,297 @@ body[data-view='part'] .main {
   font-size: 12px;
 }
 
+/* Cours en dossier : condensé (étiquette sur l'aperçu, ligne sous la description) */
+.thumb-tag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--part);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.cp-condense {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.cp-condense svg {
+  width: 16px;
+  height: 16px;
+  color: var(--part);
+}
+
+.cp-condense strong {
+  color: var(--text);
+}
+
+.chip.date {
+  --c: var(--muted);
+}
+
+/* Onglet « Condensé » : le PDF qui rassemble tout le cours, puis son sommaire */
+.condense-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 14px;
+}
+
+.condense-card {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 20px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--part) 55%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--part) 7%, var(--surface));
+}
+
+.condense-card .thumb {
+  width: 150px;
+  border-radius: 8px;
+}
+
+.cc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cc-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--part);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cc-kicker svg {
+  width: 15px;
+  height: 15px;
+}
+
+.cc-body h3 {
+  font: 700 19px/1.25 var(--display);
+}
+
+.cc-author {
+  color: var(--muted);
+}
+
+.cc-meta,
+.cc-file {
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+.cc-file {
+  overflow: hidden;
+  font-family: var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cc-body .d-actions {
+  margin-top: auto;
+}
+
+.cc-toc-title {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.condense-tab .toc,
+.condense-tab .tab-empty {
+  padding-top: 0;
+}
+
+/* Fichiers d'un cours en dossier : grille d'aperçus (PDF : première page ; photo : l'image) */
+.files-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px;
+  padding-top: 14px;
+}
+
+.file-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.file-card:hover {
+  border-color: color-mix(in srgb, var(--part) 50%, transparent);
+  transform: translateY(-2px);
+}
+
+.file-card.condense {
+  border-color: color-mix(in srgb, var(--part) 55%, transparent);
+  background: color-mix(in srgb, var(--part) 7%, var(--surface));
+}
+
+.fc-open {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 8px 10px;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fc-open .thumb {
+  width: 100%;
+  max-width: 100%; /* jamais plus large que sa carte, quelle que soit la taille de la fenêtre */
+  border-radius: 7px;
+}
+
+/* Vidéo et document Office : pas d'aperçu, une vignette de couleur (lecture / ouverture au clic) */
+.thumb.tile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border: 0;
+  color: #fff;
+}
+
+.thumb.tile.video {
+  background: radial-gradient(circle at 50% 42%, #3a3f4a, #121418);
+}
+
+.thumb.tile.video svg {
+  width: 46px;
+  height: 46px;
+  padding: 12px 10px 12px 14px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  fill: #fff;
+  stroke: none;
+  opacity: 1;
+}
+
+.thumb.tile.office {
+  background: linear-gradient(150deg, var(--app), color-mix(in srgb, var(--app) 60%, #000));
+}
+
+.thumb.tile.word {
+  --app: #2b579a;
+}
+
+.thumb.tile.excel {
+  --app: #217346;
+}
+
+.thumb.tile.powerpoint {
+  --app: #c43e1c;
+}
+
+.thumb.tile.doc {
+  --app: #5f6b7a;
+}
+
+.tile-letter {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: 12px;
+  font: 800 28px var(--display);
+}
+
+.tile-label {
+  position: absolute;
+  bottom: 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  opacity: 0.85;
+}
+
+.thumb.photo img {
+  object-fit: cover;
+  object-position: center;
+}
+
+.fc-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 0 2px;
+  line-height: 1.3;
+}
+
+.fc-text strong {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.fc-text small {
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+.fc-save {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.fc-save svg {
+  width: 15px;
+  height: 15px;
+}
+
+.file-card:hover .fc-save,
+.fc-save:focus-visible {
+  opacity: 1;
+}
+
 /* Partie vide ou en chargement */
 .cp-empty {
   max-width: 760px;
@@ -1368,11 +1761,15 @@ body[data-view='part'] .main {
     gap: 20px;
   }
 
-  .cp-hero .thumb-btn {
-    position: static;
+  /* Vignette au-dessus du texte : plus collante au défilement, mais toujours le repère de son voile « Visionner »
+     (en position static, le voile couvrait toute la zone et apparaissait au moindre survol) */
+  .cp-hero > .thumb-btn {
+    position: relative;
+    justify-self: start;
   }
 
-  .cp-hero .thumb {
+  .cp-hero > .thumb-btn .thumb,
+  .course-art.large {
     width: 170px;
   }
 
@@ -1391,7 +1788,8 @@ body[data-view='part'] .main {
     gap: 24px;
   }
 
-  .cp-hero .thumb {
+  .cp-hero > .thumb-btn .thumb,
+  .course-art.large {
     width: 190px;
   }
 

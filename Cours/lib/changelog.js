@@ -17,8 +17,11 @@
     {
       version: '0.1.0',
       date: '2026-10-12',
-      title: 'Interface compacte',
+      title: 'Lancement de Cours',
       changes: [
+        'A.Julia : 8 cours (Alimentation, BIOS, Carte mère, Chipset, Codage, CPU, Disque dur, Doc) avec leurs PDF, photos et vidéos.',
+        'Vidéos lues dans Cours, documents Word et Excel ouverts avec le programme de l\'ordinateur.',
+        'Cours en dossier : bouton et onglet « Condensé » pour le PDF qui rassemble tout le cours, onglet « Fichiers » pour le reste.',
         'Nouvelle partie Microsoft Office : Word, Excel, PowerPoint, Outlook.',
         'Barre des parties à gauche : une pastille par partie (touches 1, 2, 3).',
         'Liste des cours avec leur statut (lu, en cours, à réviser), leurs pages et leur date.',

@@ -40,6 +40,33 @@ Interface « compacte » :
   le PDF ne change pas. Pour avoir un sommaire, le PDF doit contenir des signets (exports Word / LibreOffice avec
   « créer des signets », WeasyPrint…).
 
+## Ajouter un cours en dossier (plusieurs fichiers + condensé)
+
+Un cours peut rassembler plusieurs fichiers : un dossier dans la partie, avec ses PDF et ses photos, et un
+sous-dossier `Condensé` pour le PDF qui résume tout le cours.
+
+```
+pdfs/a-julia/Alimentation/
+  ALIMENTATION.pdf, courant alternatif.pdf, … (PDF du cours)
+  classification alimentations 80.PNG, …       (photos : PNG, JPG, GIF, WebP, BMP)
+  Condensé/Architecture_et_Electricite - Mohssine.pdf
+```
+
+- Dans l'application : le cours affiche l'aperçu du condensé, un bouton **Condensé** (visionneuse) et l'onglet
+  **Fichiers** (tous les fichiers : aperçu, ouverture, téléchargement). Sans condensé, le premier PDF le remplace.
+- L'auteur du condensé est tiré de son nom : `Sujet - Auteur.pdf`.
+- Informations dans `lib/content.js` (liste `documents` de la partie) :
+
+  ```js
+  { folder: 'Alimentation', title: 'Alimentation', date: '2026-10-05', description: '…',
+    files: { 'ALIMENTATION.pdf': 'Alimentation à découpage', 'classification alimentations 80.PNG': 'Normes 80 Plus' } }
+  ```
+
+  `date` (jour du cours) range les cours dans l'ordre chronologique ; `files` donne un titre lisible à chaque fichier ;
+  `icon` choisit sa vignette (`alimentation`, `cpu`, `carte-mere`, `chipset`, `bios`, `disque`, `codage`, `document`).
+- Un cours déclaré dans `content.js` sans fichier est affiché **« À venir »** (vignette, description, avis) ; il
+  s'ouvre normalement dès que ses PDF sont déposés dans son dossier.
+
 ## Ajouter un résumé
 
 1. **Déposer le PDF** dans le dossier de sa partie : `pdfs/m-julia/`, `pdfs/a-julia/` ou `pdfs/office/`. Il apparaît tout seul (au

@@ -71,8 +71,33 @@
     home: ['M4 11l8-7 8 7', 'M6 9.5V20h4.5v-5.5h3V20H18V9.5'],
     check: ['M5 12.5l4.5 4.5L19 7'],
     flag: ['M6 21V4', 'M6 4.5h11l-2.5 4 2.5 4H6'],
+    image: ['M4 5h16v14H4z', 'M4 16l5-5 4 4 3-3 4 4', 'M15.5 8.5a1 1 0 1 0 0 .01'],
+    layers: ['M12 3l9 5-9 5-9-5z', 'M3 13l9 5 9-5'],
+    play: ['M8 5.5v13l11-6.5z'],
+    external: ['M14 4h6v6', 'M20 4l-9 9', 'M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5'],
     sparkle: ['M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z', 'M19 15l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z'],
   };
+
+  /** Icônes de cours (content.js : icon) : tracés 24 × 24, dessinés en blanc sur la couleur de la partie. */
+  const COURSE_ICONS = {
+    // Alimentation : batterie et éclair
+    alimentation: ['M3.5 7.5h15a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 2 15V9a1.5 1.5 0 0 1 1.5-1.5z', 'M22 10.5v3', 'M12 9l-2.5 3.5h3L10 16'],
+    cpu: ['M8 7h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z', 'M10.5 10.5h3v3h-3z', 'M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4'],
+    'carte-mere': ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M7 7h5v5H7z', 'M15 7h3M15 10h3M7 15.5h11M7 18h6'],
+    chipset: ['M12 3.5l8.5 8.5-8.5 8.5L3.5 12z', 'M10 10h4v4h-4z'],
+    bios: ['M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z', 'M6.5 10h5M6.5 14h7', 'M17 10.5v3', 'M8 18v2.5M12 18v2.5M16 18v2.5'],
+    // Disque dur : boîtier, plateau, axe et bras de lecture
+    disque: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M11 6.5a5 5 0 1 0 0 10 5 5 0 0 0 0-10z', 'M11 10.7a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6z', 'M18 6.5v6.5l-3.5 3', 'M6 19h.01M18 19h.01'],
+    codage: ['M8 8l-4 4 4 4', 'M16 8l4 4-4 4', 'M13.5 5.5l-3 13'],
+    document: ['M6 2.5h8l5 5V21a.5.5 0 0 1-.5.5h-12A.5.5 0 0 1 6 21z', 'M14 2.5V8h5', 'M9 13h7M9 17h5'],
+  };
+  /** Vignette d'un cours (icône sur la couleur de sa partie), ou null s'il n'a pas d'icône. */
+  function courseArt(d, cls) {
+    if (!d.icon || !COURSE_ICONS[d.icon]) return null;
+    const svg = icon(COURSE_ICONS[d.icon]);
+    svg.classList.add('art-icon');
+    return h('span', { class: `course-art ${cls}`, 'aria-hidden': 'true' }, svg);
+  }
 
   /** Logos de partie (content.js : logo) : formes simples dessinées ici, aucune image externe. */
   const LOGOS = {
@@ -125,7 +150,7 @@
     back: null,
     docs: {}, // partId → documents affichés (course.mergeDocuments)
     selected: {}, // partId → fichier du cours affiché à droite de la liste
-    tab: 'info', // onglet du cours affiché : info | toc | notes
+    tab: null, // onglet choisi (files | info | toc | notes) ; aucun : le premier du cours (Fichiers ou Informations)
     loaded: false,
   };
 
@@ -275,7 +300,9 @@
         if (result) fillPreview(holder, d, result);
         else holder.classList.add('failed');
       }
-      if (!result) onPreviewReady(d); // informations et sommaire : « illisible » au lieu de « … »
+      // Une fois par PDF lu (réussi ou illisible : « illisible » au lieu de « … ») ; jamais pour un aperçu déjà en
+      // cache, sinon un onglet qui contient des aperçus (Fichiers) se redessinerait sans fin
+      onPreviewReady(d);
       waiting.delete(k);
     }
     working = false;
@@ -285,13 +312,13 @@
   function fillPreview(holder, d, p) {
     holder.replaceChildren(h('img', { src: p.thumb, alt: '', draggable: 'false' }));
     holder.classList.add('ready');
-    onPreviewReady(d);
     const row = holder.closest('[data-doc]');
     if (!row) return;
     const pages = row.querySelector('.d-pages');
     if (pages && p.pages) pages.textContent = plural(p.pages, 'page', 'pages');
     const desc = row.querySelector('.d-desc');
-    if (desc && !d.description && p.subject) {
+    // Sujet du PDF en guise de description, seulement si le cours n'en a pas (cours en dossier : jamais celui du condensé)
+    if (desc && !d.description && !row.hasAttribute('data-has-desc') && p.subject) {
       desc.textContent = p.subject;
       desc.classList.remove('none');
     }
@@ -326,19 +353,69 @@
 
   // ------------------------------------------------------------------ actions
 
-  /** Visionneuse (à une page précise depuis le sommaire). Un cours ouvert sans statut passe « En cours ». */
-  async function openDoc(d, page) {
+  /**
+   * Visionneuse : un fichier du cours (target), sinon le PDF qui le représente (condensé ou premier PDF), à une
+   * page précise depuis le sommaire. Un cours ouvert sans statut passe « En cours ».
+   */
+  /** Fichier principal d'un cours : son condensé ou son premier PDF, sinon son premier fichier (Word, vidéo…). */
+  const mainFile = (d) => C.coverOf(d) || (d && d.kind === 'folder' ? d.files[0] || null : null);
+
+  async function openDoc(course, { target, page } = {}) {
     if (!api) return;
-    const res = await api.openDocument(d.partId, d.file, d.title, page || 0);
+    const t = target || mainFile(course);
+    if (!t) return toast('Ce cours n\'a pas encore de fichier.');
+    const res = await api.openDocument(course.partId, t.file, t.title, page || 0);
     if (!res || !res.ok) return toast((res && res.error) || 'Ouverture impossible.');
-    if (!statusOf(d)) setStatus(d, 'encours');
+    if (res.external) toast(`« ${t.title} » s'ouvre avec ${APP_NAMES[C.officeApp(t.name)] || 'le programme de l\'ordinateur'}.`);
+    if (!statusOf(course)) setStatus(course, 'encours');
   }
 
-  async function saveDoc(d) {
+  async function saveDoc(course, target) {
     if (!api) return;
-    const res = await api.saveDocument(d.partId, d.file);
-    if (res && res.ok) toast('Résumé enregistré.');
+    const t = target || mainFile(course);
+    if (!t) return;
+    const res = await api.saveDocument(course.partId, t.file);
+    if (res && res.ok) toast({ image: 'Photo enregistrée.', video: 'Vidéo enregistrée.', office: 'Document enregistré.' }[t.kind] || 'PDF enregistré.');
     else if (!(res && res.canceled)) toast((res && res.error) || 'Enregistrement impossible.');
+  }
+
+  const APP_NAMES = { word: 'Word', excel: 'Excel', powerpoint: 'PowerPoint' };
+  /** Type affiché d'un fichier : « PDF », « Photo », « Vidéo », « Document Word »… */
+  function kindLabel(f) {
+    if (f.kind === 'office') return { word: 'Document Word', excel: 'Classeur Excel', powerpoint: 'Présentation PowerPoint' }[C.officeApp(f.name)] || 'Document';
+    return { pdf: 'PDF', image: 'Photo', video: 'Vidéo' }[f.kind] || 'Fichier';
+  }
+
+  /** Vignette d'une vidéo ou d'un document Office (pas d'aperçu : icône sur fond de couleur). */
+  function fileTile(f) {
+    if (f.kind === 'video') return h('span', { class: 'thumb tile video' }, icon(ICONS.play), h('span', { class: 'tile-label' }, 'Vidéo'));
+    const appName = C.officeApp(f.name);
+    const letter = { word: 'W', excel: 'X', powerpoint: 'P' }[appName] || 'D';
+    return h('span', { class: `thumb tile office ${appName || 'doc'}` }, h('span', { class: 'tile-letter' }, letter), h('span', { class: 'tile-label' }, APP_NAMES[appName] || 'Document'));
+  }
+
+  /** Miniature d'une photo (lue par le processus principal, affichée en blob:), gardée le temps de la session. */
+  const imageUrls = new Map();
+  function imageBox(f) {
+    const box = h('span', { class: 'thumb photo' }, icon(ICONS.image));
+    const key = `${f.partId}/${f.file}|${f.size}|${f.mtime}`;
+    const show = (url) => {
+      box.replaceChildren(h('img', { src: url, alt: '', draggable: 'false' }));
+      box.classList.add('ready');
+    };
+    if (imageUrls.has(key)) show(imageUrls.get(key));
+    else if (api) {
+      api
+        .readDocument(f.partId, f.file)
+        .then((res) => {
+          if (!res || !res.ok) throw new Error((res && res.error) || 'lecture impossible');
+          const url = URL.createObjectURL(new Blob([res.data]));
+          imageUrls.set(key, url);
+          show(url);
+        })
+        .catch(() => box.classList.add('failed'));
+    }
+    return box;
   }
 
   // ------------------------------------------------------------------ navigation
@@ -424,10 +501,18 @@
   /** Un résumé : aperçu (cliquable) + partie, titre, description, informations, boutons. */
   function docRow(d, { showPart = false } = {}) {
     const part = partOf(d.partId);
-    const thumb = h('button', { type: 'button', class: 'thumb-btn', title: `Visionner « ${d.title} »`, onclick: () => openDoc(d) }, previewBox(d), h('span', { class: 'thumb-hover' }, icon(ICONS.eye), 'Visionner'));
+    const folder = d.kind === 'folder';
+    const cover = C.coverOf(d);
+    const art = courseArt(d, 'mid');
+    const thumb = h(
+      'button',
+      { type: 'button', class: `thumb-btn${art ? ' art' : ''}`, title: `Visionner « ${d.title} »`, disabled: !cover, onclick: () => openDoc(d) },
+      art || (cover ? previewBox(cover) : h('span', { class: 'thumb failed' }, icon(ICONS.file))),
+      cover ? h('span', { class: 'thumb-hover' }, icon(ICONS.eye), 'Visionner') : null
+    );
     return h(
       'article',
-      { class: 'doc', 'data-doc': '', 'data-filter': C.fold(`${d.title} ${d.description} ${d.file}`), style: { '--part': part ? part.accent : 'var(--accent)' } },
+      { class: 'doc', 'data-doc': '', 'data-has-desc': folder ? '' : null, 'data-filter': C.fold(`${d.title} ${d.description} ${d.file}`), style: { '--part': part ? part.accent : 'var(--accent)' } },
       thumb,
       h(
         'div',
@@ -437,12 +522,20 @@
           : null,
         h('h3', { class: 'd-title' }, d.title),
         h('p', { class: `d-desc${d.description ? '' : ' none'}` }, d.description || 'Pas de description.'),
-        h('p', { class: 'd-meta' }, h('span', { class: 'd-pages' }, '— pages'), h('span', null, C.formatSize(d.size)), d.mtime ? h('span', null, `Ajouté le ${dateFr(d.mtime)}`) : null),
+        h(
+          'p',
+          { class: 'd-meta' },
+          folder ? h('span', null, d.empty ? 'À venir' : `${plural(d.files.length, 'fichier', 'fichiers')}${d.condense ? ' + condensé' : ''}`) : h('span', { class: 'd-pages' }, '— pages'),
+          d.empty ? null : h('span', null, C.formatSize(d.size)),
+          d.date ? h('span', null, `Cours du ${dateFr(d.date)}`) : d.mtime ? h('span', null, `Ajouté le ${dateFr(d.mtime)}`) : null
+        ),
         h(
           'div',
           { class: 'd-actions' },
-          h('button', { type: 'button', class: 'btn primary', onclick: () => openDoc(d) }, icon(ICONS.eye), 'Visionner'),
-          h('button', { type: 'button', class: 'btn', onclick: () => saveDoc(d) }, icon(ICONS.download), 'Télécharger')
+          folder
+            ? h('button', { type: 'button', class: 'btn primary', onclick: () => showCourse(d) }, icon(ICONS.next), 'Ouvrir le cours')
+            : h('button', { type: 'button', class: 'btn primary', onclick: () => openDoc(d) }, icon(ICONS.eye), 'Visionner'),
+          cover ? h('button', { type: 'button', class: 'btn', onclick: () => saveDoc(d) }, icon(ICONS.download), folder && d.condense ? 'Télécharger le condensé' : 'Télécharger') : null
         )
       )
     );
@@ -522,18 +615,24 @@
     renderDetail(d);
   }
 
-  /** Infos du cours : nombre de pages et date (liste). */
+  /** Infos du cours dans la liste : pages (PDF seul) ou nombre de fichiers (dossier), et date. */
   function rowMeta(d) {
+    if (d.kind === 'folder' && d.empty) return ['À venir', shortDate(d.date)].filter(Boolean).join(' · ');
+    // Date du cours (content.js) seulement : celle des fichiers n'est que leur date de copie
+    if (d.kind === 'folder') return [`${plural(d.files.length, 'fichier', 'fichiers')}${d.condense ? ' + condensé' : ''}`, shortDate(d.date)].filter(Boolean).join(' · ');
     const p = cache.get(docKey(d));
     return [p && p.pages ? `${p.pages} p.` : C.formatSize(d.size), shortDate(d.mtime)].filter(Boolean).join(' · ');
   }
+
+  /** Le fichier f fait-il partie du cours d (lui-même, ou un fichier de son dossier) ? */
+  const inCourse = (d, f) => Boolean(d && f) && (sameDoc(d, f) || (d.kind === 'folder' && d.partId === f.partId && f.file.startsWith(`${d.file}/`)));
 
   /** Aperçu prêt : met à jour la liste et le cours affiché (sans rejouer leurs animations). */
   function onPreviewReady(d) {
     for (const el of document.querySelectorAll(`.cp-row[data-key="${CSS.escape(docKey(d))}"] .cp-meta`)) el.textContent = rowMeta(d);
     // L'onglet « Mes notes » n'est pas redessiné : la saisie en cours garde le focus
     const shown = shownDoc();
-    if (sameDoc(shown, d) && state.tab !== 'notes') renderTab(shown);
+    if (inCourse(shown, d) && state.tab !== 'notes') renderTab(shown);
   }
 
   /** Colonne de gauche : nom de la partie, filtre, cours (statut, titre, pages, date), légende. */
@@ -553,8 +652,8 @@
           onclick: () => selectCourse(d),
         },
         h('span', { class: 'cp-dot', 'data-status': statusOf(d), 'aria-hidden': 'true' }),
-        h('span', { class: 'cp-text' }, h('strong', null, d.title), h('small', { class: 'cp-meta' }, rowMeta(d))),
-        h('span', { class: 'cp-size' }, C.formatSize(d.size))
+        h('span', { class: 'cp-text' }, courseArt(d, 'small'), h('span', { class: 'cp-label' }, h('strong', null, d.title), h('small', { class: 'cp-meta' }, rowMeta(d)))),
+        h('span', { class: 'cp-size' }, d.empty ? '' : C.formatSize(d.size))
       )
     );
     const none = h('p', { class: 'cp-none', hidden: true }, 'Aucun cours ne correspond.');
@@ -593,11 +692,13 @@
 
   // Cours affiché : grand aperçu, statut, actions, onglets (Informations, Sommaire, Mes notes)
 
-  const TABS = [
-    ['info', 'Informations'],
-    ['toc', 'Sommaire'],
-    ['notes', 'Mes notes'],
-  ];
+  /** Onglets d'un cours : un cours en dossier a « Fichiers » (en premier) et, s'il en a un, « Condensé ». */
+  function tabsOf(d) {
+    if (d.kind !== 'folder') return [['info', 'Informations'], ['toc', 'Sommaire'], ['notes', 'Mes notes']];
+    return [['files', `Fichiers (${d.files.length})`], ...(d.condense ? [['condense', 'Condensé']] : []), ['info', 'Informations'], ['notes', 'Mes notes']];
+  }
+  /** Onglet affiché : celui choisi s'il existe pour ce cours, sinon le premier. */
+  const tabFor = (d) => (tabsOf(d).some(([id]) => id === state.tab) ? state.tab : tabsOf(d)[0][0]);
 
   function renderDetail(d, { animate = true } = {}) {
     const box = document.querySelector('.cp-detail');
@@ -609,7 +710,19 @@
   function courseDetail(d) {
     const part = partOf(d.partId);
     const status = statusOf(d);
-    const thumb = h('button', { type: 'button', class: 'thumb-btn', title: `Visionner « ${d.title} »`, onclick: () => openDoc(d) }, previewBox(d), h('span', { class: 'thumb-hover' }, icon(ICONS.eye), 'Visionner'));
+    const folder = d.kind === 'folder';
+    const cover = C.coverOf(d);
+    const current = tabFor(d);
+    const art = courseArt(d, 'large');
+    const main = mainFile(d); // condensé, premier PDF, sinon premier fichier (Word, vidéo…)
+    const thumb = h(
+      'button',
+      { type: 'button', class: `thumb-btn${art ? ' art' : ''}`, disabled: !main, title: !main ? null : folder && d.condense ? `Ouvrir le condensé « ${d.condense.title} »` : `Ouvrir « ${main.title} »`, onclick: () => openDoc(d) },
+      // Cours avec une icône : la vignette du cours ; sinon l'aperçu de son PDF
+      art || (cover ? previewBox(cover) : h('span', { class: 'thumb failed' }, icon(ICONS.file))),
+      main ? h('span', { class: 'thumb-hover' }, icon(folder && d.condense ? ICONS.layers : ICONS.eye), folder && d.condense ? 'Condensé' : cover ? 'Visionner' : 'Ouvrir') : null,
+      folder && d.condense ? h('span', { class: 'thumb-tag' }, 'Condensé') : d.empty ? h('span', { class: 'thumb-tag soon' }, 'À venir') : null
+    );
     const toggle = (s, label, onLabel, ic) =>
       h(
         'button',
@@ -620,14 +733,14 @@
     const tabs = h(
       'div',
       { class: 'tabs', role: 'tablist' },
-      TABS.map(([id, label]) =>
+      tabsOf(d).map(([id, label]) =>
         h(
           'button',
           {
             type: 'button',
             role: 'tab',
-            class: `tab${state.tab === id ? ' on' : ''}`,
-            'aria-selected': String(state.tab === id),
+            class: `tab${current === id ? ' on' : ''}`,
+            'aria-selected': String(current === id),
             onclick: () => {
               state.tab = id;
               for (const t of tabs.children) {
@@ -644,24 +757,39 @@
         )
       )
     );
+    // Cours en dossier : « Condensé » (le PDF qui rassemble tout le cours) ; sans condensé, son premier PDF
+    const primary = folder && d.condense
+      ? h('button', { type: 'button', class: 'btn primary', onclick: () => openDoc(d), title: `Ouvrir « ${d.condense.title} »` }, icon(ICONS.layers), 'Condensé')
+      : cover || !main
+        ? h('button', { type: 'button', class: 'btn primary', disabled: !cover, onclick: () => openDoc(d) }, icon(ICONS.eye), 'Visionner')
+        // Pas de PDF (ex. un document Word seul) : on ouvre le premier fichier
+        : h('button', { type: 'button', class: 'btn primary', onclick: () => openDoc(d), title: `Ouvrir « ${main.title} »` }, icon(main.kind === 'office' ? ICONS.external : ICONS.eye), main.kind === 'office' ? `Ouvrir dans ${APP_NAMES[C.officeApp(main.name)] || 'le programme'}` : 'Ouvrir');
+    const download = main
+      ? h('button', { type: 'button', class: 'btn', onclick: () => saveDoc(d) }, icon(ICONS.download), folder && d.condense ? 'Télécharger le condensé' : 'Télécharger')
+      : null;
     return h(
       'article',
-      { class: 'cp-hero', 'data-doc': '', style: { '--part': part ? part.accent : 'var(--accent)' } },
+      { class: 'cp-hero', 'data-doc': '', 'data-has-desc': folder ? '' : null, style: { '--part': part ? part.accent : 'var(--accent)' } },
       thumb,
       h(
         'div',
         { class: 'cp-body' },
-        h('div', { class: 'cp-chips' }, part ? h('span', { class: 'chip' }, part.name) : null, status ? h('span', { class: `chip st-${status}` }, STATUS[status]) : null),
-        h('h2', { class: 'cp-name' }, d.title),
-        h('p', { class: `d-desc${d.description ? '' : ' none'}` }, d.description || 'Pas de description.'),
         h(
           'div',
-          { class: 'd-actions' },
-          h('button', { type: 'button', class: 'btn primary', onclick: () => openDoc(d) }, icon(ICONS.eye), 'Visionner'),
-          h('button', { type: 'button', class: 'btn', onclick: () => saveDoc(d) }, icon(ICONS.download), 'Télécharger'),
-          toggle('lu', 'Marquer comme lu', 'Lu', ICONS.check),
-          toggle('reviser', 'À réviser', 'À réviser', ICONS.flag)
+          { class: 'cp-chips' },
+          part ? h('span', { class: 'chip' }, part.name) : null,
+          d.date ? h('span', { class: 'chip date' }, `Cours du ${dateFr(d.date)}`) : null,
+          status ? h('span', { class: `chip st-${status}` }, STATUS[status]) : null
         ),
+        h('h2', { class: 'cp-name' }, d.title),
+        h('p', { class: `d-desc${d.description ? '' : ' none'}` }, d.description || 'Pas de description.'),
+        folder && d.condense
+          ? h('p', { class: 'cp-condense' }, icon(ICONS.layers), h('span', null, 'Condensé : ', h('strong', null, d.condense.title), d.condense.author ? ` — par ${d.condense.author}` : ''))
+          : null,
+        // Cours annoncé, sans fichier : pas d'actions sur des fichiers, un simple avis
+        d.empty
+          ? h('p', { class: 'cp-soon' }, icon(ICONS.file), 'Les fichiers de ce cours arrivent bientôt.')
+          : h('div', { class: 'd-actions' }, primary, download, toggle('lu', 'Marquer comme lu', 'Lu', ICONS.check), toggle('reviser', 'À réviser', 'À réviser', ICONS.flag)),
         tabs,
         h('div', { class: 'tab-body', 'data-key': docKey(d) }, tabContent(d))
       )
@@ -675,9 +803,71 @@
   }
 
   function tabContent(d) {
-    if (state.tab === 'toc') return tocTab(d);
-    if (state.tab === 'notes') return notesTab(d);
+    const tab = tabFor(d);
+    if (tab === 'files') return filesTab(d);
+    if (tab === 'condense') return condenseTab(d);
+    if (tab === 'toc') return tocTab(d);
+    if (tab === 'notes') return notesTab(d);
     return infoTab(d);
+  }
+
+  /**
+   * Condensé d'un cours en dossier (le PDF qui rassemble tout le cours) : aperçu, titre, auteur, pages, taille,
+   * Ouvrir / Télécharger, puis son sommaire (signets) s'il en a un.
+   */
+  function condenseTab(d) {
+    const c = d.condense;
+    const p = cache.get(docKey(c)) || {};
+    const pages = p.pages ? plural(p.pages, 'page', 'pages') : unreadable.has(docKey(c)) ? 'PDF illisible' : '…';
+    return h(
+      'div',
+      { class: 'condense-tab' },
+      h(
+        'div',
+        { class: 'condense-card' },
+        h('button', { type: 'button', class: 'thumb-btn', title: `Ouvrir « ${c.title} »`, onclick: () => openDoc(d, { target: c }) }, previewBox(c), h('span', { class: 'thumb-hover' }, icon(ICONS.eye), 'Ouvrir')),
+        h(
+          'div',
+          { class: 'cc-body' },
+          h('span', { class: 'cc-kicker' }, icon(ICONS.layers), 'Condensé du cours'),
+          h('h3', null, c.title),
+          c.author ? h('p', { class: 'cc-author' }, `par ${c.author}`) : null,
+          h('p', { class: 'cc-meta' }, [pages, C.formatSize(c.size)].join(' · ')),
+          h('p', { class: 'cc-file', title: c.name }, c.name),
+          h(
+            'div',
+            { class: 'd-actions' },
+            h('button', { type: 'button', class: 'btn primary', onclick: () => openDoc(d, { target: c }) }, icon(ICONS.eye), 'Ouvrir le condensé'),
+            h('button', { type: 'button', class: 'btn', onclick: () => saveDoc(d, c) }, icon(ICONS.download), 'Télécharger')
+          )
+        )
+      ),
+      h('h4', { class: 'cc-toc-title' }, 'Sommaire'),
+      tocTab(d)
+    );
+  }
+
+  /** Fichiers d'un cours en dossier : ses PDF et ses photos (le condensé a son onglet). Clic : visionneuse ; bouton : téléchargement. */
+  function filesTab(d) {
+    const card = (f) => {
+      const p = f.kind === 'pdf' ? cache.get(docKey(f)) : null;
+      const what = p && p.pages ? `PDF · ${plural(p.pages, 'page', 'pages')}` : kindLabel(f);
+      return h(
+        'div',
+        { class: `file-card${f.condense ? ' condense' : ''}` },
+        h(
+          'button',
+          { type: 'button', class: 'fc-open', title: `Ouvrir « ${f.title} »`, onclick: () => openDoc(d, { target: f }) },
+          f.kind === 'image' ? imageBox(f) : f.kind === 'pdf' ? previewBox(f) : fileTile(f),
+          f.condense ? h('span', { class: 'thumb-tag' }, 'Condensé') : null,
+          h('span', { class: 'fc-text' }, h('strong', null, f.title), h('small', null, [what, C.formatSize(f.size)].join(' · ')), f.condense && f.author ? h('small', null, `par ${f.author}`) : null)
+        ),
+        h('button', { type: 'button', class: 'fc-save', title: `Télécharger « ${f.name} »`, 'aria-label': `Télécharger ${f.title}`, onclick: () => saveDoc(d, f) }, icon(ICONS.download))
+      );
+    };
+    if (d.empty) return h('p', { class: 'tab-empty' }, 'Aucun fichier pour l\'instant : les PDF et les photos de ce cours arriveront bientôt.');
+    if (!d.files.length) return h('p', { class: 'tab-empty' }, 'Ce cours n\'a pas d\'autre fichier que son condensé.');
+    return h('div', { class: 'files-grid' }, d.files.map(card));
   }
 
   const LANGUAGES = (() => {
@@ -697,23 +887,8 @@
     }
   };
 
-  /** Informations : auteur (content.js, sinon le PDF), taille, pages, format, langue, dates, logiciel, fichier. */
-  function infoTab(d) {
-    const p = cache.get(docKey(d)) || {};
-    const author = d.author || p.author || '';
-    const rows = [
-      ['Auteur', author || 'Non renseigné', { faint: !author }],
-      ['État', unreadable.has(docKey(d)) ? 'PDF illisible (fichier abîmé ou protégé)' : '', { warn: true }],
-      ['Pages', p.pages ? String(p.pages) : unreadable.has(docKey(d)) ? '' : '…'],
-      ['Taille', C.formatSize(d.size), { sub: `${Number(d.size).toLocaleString('fr-FR')} octets` }],
-      ['Format', p.version ? `PDF ${p.version}` : 'PDF'],
-      ['Langue', languageName(p.language)],
-      ['Ajouté le', dateFr(d.mtime)],
-      ['Créé le', p.created ? dateFr(p.created) : ''],
-      ['Modifié le', p.modified && dateFr(p.modified) !== dateFr(p.created) ? dateFr(p.modified) : ''],
-      ['Logiciel', p.software],
-      ['Fichier', d.file, { file: true }],
-    ];
+  /** Lignes « libellé : valeur » des informations (valeurs vides retirées). */
+  function infoList(rows) {
     return h(
       'dl',
       { class: 'info-grid' },
@@ -730,15 +905,61 @@
     );
   }
 
-  /** Sommaire : signets du PDF ; un clic ouvre la visionneuse à la bonne page. */
+  /** Informations : auteur (content.js, sinon le PDF), taille, pages, format, langue, dates, logiciel, fichier. */
+  function infoTab(d) {
+    if (d.kind === 'folder') {
+      // Cours en dossier : contenu, condensé (auteur, pages), taille totale, date du cours, dossier
+      const count = (k) => d.files.filter((f) => f.kind === k).length;
+      const content = [
+        count('pdf') ? plural(count('pdf'), 'PDF', 'PDF') : '',
+        count('office') ? plural(count('office'), 'document', 'documents') : '',
+        count('image') ? plural(count('image'), 'photo', 'photos') : '',
+        count('video') ? plural(count('video'), 'vidéo', 'vidéos') : '',
+        d.condense ? 'un condensé' : '',
+      ].filter(Boolean);
+      const c = d.condense ? cache.get(docKey(d.condense)) || {} : null;
+      return infoList([
+        ['Contenu', d.empty ? 'Aucun fichier pour l\'instant' : content.join(', '), { faint: d.empty }],
+        ['Condensé', d.condense ? d.condense.title : d.empty ? '' : 'Pas encore', { faint: !d.condense }],
+        ['Par', d.condense ? d.condense.author : ''],
+        ['Pages', c && c.pages ? `${c.pages} (condensé)` : ''],
+        ['Date du cours', d.date ? dateFr(d.date) : ''],
+        ['Taille', d.empty ? '' : C.formatSize(d.size), { sub: `${Number(d.size).toLocaleString('fr-FR')} octets` }],
+        ['Ajouté le', dateFr(d.mtime)],
+        ['Dossier', d.file, { file: true }],
+      ]);
+    }
+    const p = cache.get(docKey(d)) || {};
+    const author = d.author || p.author || '';
+    const rows = [
+      ['Auteur', author || 'Non renseigné', { faint: !author }],
+      ['État', unreadable.has(docKey(d)) ? 'PDF illisible (fichier abîmé ou protégé)' : '', { warn: true }],
+      ['Pages', p.pages ? String(p.pages) : unreadable.has(docKey(d)) ? '' : '…'],
+      ['Taille', C.formatSize(d.size), { sub: `${Number(d.size).toLocaleString('fr-FR')} octets` }],
+      ['Format', p.version ? `PDF ${p.version}` : 'PDF'],
+      ['Langue', languageName(p.language)],
+      ['Ajouté le', dateFr(d.mtime)],
+      ['Créé le', p.created ? dateFr(p.created) : ''],
+      ['Modifié le', p.modified && dateFr(p.modified) !== dateFr(p.created) ? dateFr(p.modified) : ''],
+      ['Logiciel', p.software],
+      ['Fichier', d.file, { file: true }],
+    ];
+    return infoList(rows);
+  }
+
+  /** Sommaire : signets du PDF (cours en dossier : ceux du condensé) ; un clic ouvre la visionneuse à la bonne page. */
   function tocTab(d) {
-    const p = cache.get(docKey(d));
-    if (!p) return h('p', { class: 'tab-empty' }, unreadable.has(docKey(d)) ? 'PDF illisible : sommaire indisponible.' : 'Lecture du sommaire…');
-    if (!p.outline || !p.outline.length) return h('p', { class: 'tab-empty' }, 'Ce PDF n\'a pas de signets : pas de sommaire à afficher.');
+    const cover = C.coverOf(d);
+    if (!cover) return h('p', { class: 'tab-empty' }, 'Ce cours n\'a pas de PDF.');
+    const p = cache.get(docKey(cover));
+    if (!p) return h('p', { class: 'tab-empty' }, unreadable.has(docKey(cover)) ? 'PDF illisible : sommaire indisponible.' : 'Lecture du sommaire…');
+    if (!p.outline || !p.outline.length) {
+      return h('p', { class: 'tab-empty' }, `${d.kind === 'folder' && d.condense ? 'Le condensé' : 'Ce PDF'} n'a pas de signets : pas de sommaire à afficher.`);
+    }
     const entry = (s, sub) =>
       h(
         'button',
-        { type: 'button', class: `toc-item${sub ? ' sub' : ''}`, disabled: !s.page, title: s.page ? `Ouvrir à la page ${s.page}` : null, onclick: () => openDoc(d, s.page) },
+        { type: 'button', class: `toc-item${sub ? ' sub' : ''}`, disabled: !s.page, title: s.page ? `Ouvrir à la page ${s.page}` : null, onclick: () => openDoc(d, { target: cover, page: s.page }) },
         sub ? (s.code ? h('span', { class: 'toc-code' }, s.code) : null) : h('span', { class: 'toc-badge' }, s.code || icon(ICONS.file)),
         h('span', { class: 'toc-title' }, s.title),
         s.page ? h('span', { class: 'toc-page' }, sub ? String(s.page) : `p. ${s.page}`) : null
@@ -789,7 +1010,10 @@
     state.selected[part.id] = current.file;
     // Pages et sommaire de tous les cours de la partie, en arrière-plan (le cours affiché d'abord)
     requestAnimationFrame(() => {
-      for (const d of [current, ...docs.filter((x) => x !== current)]) if (!cache.get(docKey(d)) && !unreadable.has(docKey(d))) requestPreview(d, h('span'));
+      for (const d of [current, ...docs.filter((x) => x !== current)]) {
+        const t = C.coverOf(d); // cours en dossier : son condensé (ou premier PDF)
+        if (t && !cache.get(docKey(t)) && !unreadable.has(docKey(t))) requestPreview(t, h('span'));
+      }
     });
     return h('section', { class: 'cp', style: { '--part': part.accent } }, courseList(part, docs, current), h('div', { class: 'cp-detail' }, courseDetail(current)));
   }
@@ -866,7 +1090,8 @@
     if (state.loaded && JSON.stringify(next) === JSON.stringify(state.docs)) return false; // rien de nouveau : mêmes objets
     state.docs = next;
     state.loaded = true;
-    cache.keepOnly(parts.flatMap((p) => state.docs[p.id].map(docKey)));
+    // Aperçus gardés : PDF seuls, et chaque PDF des cours en dossier (condensé compris)
+    cache.keepOnly(parts.flatMap((p) => state.docs[p.id].flatMap((d) => (d.kind === 'folder' ? [...(d.condense ? [d.condense] : []), ...d.files] : [d]).map(docKey))));
     return true;
   }
 

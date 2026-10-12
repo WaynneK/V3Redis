@@ -147,18 +147,14 @@ module.exports = [
     },
   },
   {
-    // Application prête (projet ..\Cours) mais pas encore ouverte : « Bientôt disponible » et absente de
-    // l'installeur. devPreview : ouverte en développement (npm start), pour travailler dessus depuis le HUB.
-    // Passer à 'available' quand les résumés seront écrits.
     id: 'cours',
-    devPreview: true,
     name: 'Cours',
     tagline: 'Les résumés de la formation',
     description: 'Les résumés PDF de la formation : M.Julia (IP, Windows Server), A.Julia (hardware) et Microsoft Office.',
     icon: 'cours.svg',
     accent: '#34d399',
-    features: ['Résumés PDF', 'Aperçu et visionneuse', 'Téléchargement', 'Recherche'],
-    status: 'soon',
+    features: ['Résumés PDF', 'Sommaire et notes', 'Suivi de lecture', 'Recherche'],
+    status: 'available',
     downloadUrl: null,
     windows: {
       displayName: 'Cours',

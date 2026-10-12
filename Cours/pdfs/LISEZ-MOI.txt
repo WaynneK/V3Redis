@@ -2,3 +2,5 @@ Résumés PDF de Cours : un dossier par partie (m-julia, a-julia, office).
 Déposez un PDF dans le dossier de sa partie : il apparaît tout seul dans l'application.
 Un numéro en tête du nom choisit l'ordre : « 01 - Adressage IP.pdf » s'affiche « Adressage IP ».
 Titre et description peuvent être précisés dans lib/content.js.
+Cours en dossier : un sous-dossier par cours (PDF et photos), avec un dossier « Condensé » pour le PDF qui résume tout le cours
+(ex. a-julia\Alimentation\Condensé\Sujet - Auteur.pdf). Voir le README de Cours.

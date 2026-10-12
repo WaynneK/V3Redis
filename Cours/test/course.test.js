@@ -121,6 +121,88 @@ test('changelog : première entrée = version de l\'application, entrées compl�
   assert.equal(new Set(LOG.map((e) => e.version)).size, LOG.length, 'versions en double');
 });
 
+test('titleFromFile : noms en majuscules remis en minuscules, sigles courts gardés, photos', () => {
+  assert.equal(C.titleFromFile('NOTIONS DE BASE EN ELECTRICITE.pdf'), 'Notions de base en electricite');
+  assert.equal(C.titleFromFile('DNS.pdf'), 'DNS');
+  assert.equal(C.titleFromFile('double-alimentation-700-watts.JPG'), 'double-alimentation-700-watts');
+});
+
+test('isSafeRel : chemins sûrs dans le dossier d\'une partie', () => {
+  for (const ok of ['a.pdf', 'Cours/a.pdf', 'Cours/photo.PNG', 'Cours/Condensé/a.pdf']) assert.ok(C.isSafeRel(ok), ok);
+  for (const bad of ['../a.pdf', 'Cours/../a.pdf', 'a/b/c/d.pdf', 'Cours/a.txt', 'C:/a.pdf', 'Cours\\a.pdf', '', null, 'Cours/']) assert.ok(!C.isSafeRel(bad), String(bad));
+  assert.ok(C.isCondenseFolder('Condensé') && C.isCondenseFolder('Condensée') && C.isCondenseFolder('condenses') && !C.isCondenseFolder('Cours'));
+  assert.deepEqual(C.splitAuthor('Architecture_et_Electricite - Mohssine.pdf'), { title: 'Architecture et Electricite', author: 'Mohssine' });
+  assert.deepEqual(C.splitAuthor('ALIMENTATION.pdf'), { title: 'Alimentation', author: '' });
+});
+
+test('mergeDocuments : cours en dossier (fichiers, photos, condensé, date) et PDF seuls', () => {
+  const part = {
+    id: 'a-julia',
+    documents: [{ folder: 'Alimentation', date: '2026-10-05', description: 'Électricité.', files: { 'ALIM.pdf': 'Alimentation à découpage', 'Fiche - Mohssine.pdf': 'Fiche de révision' } }],
+  };
+  const docs = C.mergeDocuments(part, {
+    files: [{ file: '01 - Seul.pdf', size: 10, mtime: 5 }],
+    folders: [
+      {
+        folder: 'Alimentation',
+        files: [
+          { file: 'Alimentation/photo.JPG', size: 3, mtime: 1 },
+          { file: 'Alimentation/ALIM.pdf', size: 4, mtime: 2 },
+          { file: 'Alimentation/b cours.pdf', size: 5, mtime: 9 },
+        ],
+        condense: [{ file: 'Alimentation/Condensé/Fiche - Mohssine.pdf', size: 6, mtime: 3 }],
+      },
+      { folder: 'Vide', files: [], condense: [] },
+    ],
+  });
+  // Cours datés d'abord, dossier vide ignoré
+  assert.deepEqual(docs.map((d) => `${d.kind}:${d.file}`), ['folder:Alimentation', 'pdf:01 - Seul.pdf']);
+  const f = docs[0];
+  assert.equal(f.title, 'Alimentation');
+  assert.equal(f.description, 'Électricité.');
+  assert.equal(f.date, new Date('2026-10-05T12:00:00').getTime());
+  assert.deepEqual(f.files.map((x) => `${x.kind}:${x.title}`), ['pdf:Alimentation à découpage', 'pdf:b cours', 'image:photo']);
+  assert.deepEqual([f.condense.title, f.condense.author, f.condense.file, f.condense.condense], ['Fiche de révision', 'Mohssine', 'Alimentation/Condensé/Fiche - Mohssine.pdf', true]);
+  assert.equal(f.size, 18);
+  assert.equal(f.mtime, 9);
+  assert.equal(C.coverOf(f), f.condense);
+  assert.equal(C.coverOf(docs[1]), docs[1]);
+  assert.equal(C.coverOf({ kind: 'folder', files: [{ kind: 'image' }, { kind: 'pdf', file: 'x' }], condense: null }).file, 'x');
+  // Ancien format (liste de PDF) toujours accepté
+  assert.deepEqual(C.mergeDocuments({ id: 'm' }, [{ file: 'a.pdf', size: 1, mtime: 1 }]).map((d) => d.kind), ['pdf']);
+  // Recherche dans les fichiers et le condensé d'un cours en dossier
+  assert.deepEqual(C.search([{ id: 'a-julia', name: 'A.Julia', documents: docs }], 'mohssine').map((d) => d.file), ['Alimentation']);
+});
+
+test('mergeDocuments : cours annoncés dans content.js, sans fichier (« à venir »)', () => {
+  const part = { id: 'a', documents: [{ folder: 'BIOS', icon: 'bios' }, { folder: 'CPU', icon: 'cpu', date: '2026-10-12' }, { folder: 'Codage', icon: 'inconnue' }] };
+  const docs = C.mergeDocuments(part, { files: [], folders: [{ folder: 'BIOS', files: [], condense: [] }, { folder: 'Autre', files: [], condense: [] }] });
+  // BIOS : dossier vide mais déclaré ; CPU : déclaré sans dossier ; Autre : dossier vide non déclaré → ignoré
+  assert.deepEqual(docs.map((d) => `${d.file}:${d.empty}:${d.icon}`), ['CPU:true:cpu', 'BIOS:true:bios', 'Codage:true:']);
+  assert.equal(C.coverOf(docs[0]), null);
+  assert.ok(C.validate({ parts: [{ id: 'a', name: 'A', accent: '#ffffff', documents: [{ folder: 'X', icon: 'inconnue' }] }] }).some((e) => /icône inconnue/.test(e)));
+});
+
+test('fichiers d\'un cours : vidéos et documents Office, ordre PDF → Office → photos → vidéos', () => {
+  assert.deepEqual(['a.mp4', 'b.webm', 'c.docx', 'd.XLSX', 'e.pptx', 'f.pdf', 'g.png', 'h.exe', 'i.mov'].map(C.kindOf), ['video', 'video', 'office', 'office', 'office', 'pdf', 'image', '', '']);
+  assert.deepEqual(['a.docx', 'b.xlsx', 'c.pptx', 'd.odt', 'e.pdf'].map(C.officeApp), ['word', 'excel', 'powerpoint', 'word', '']);
+  assert.ok(C.isSafeRel('CPU/film.mp4') && C.isSafeRel('Chipset/doc.docx') && !C.isSafeRel('CPU/setup.exe'));
+  assert.equal(C.titleFromFile('chipset et generation.docx'), 'chipset et generation');
+  const [d] = C.mergeDocuments({ id: 'a', documents: [{ folder: 'CPU' }] }, {
+    folders: [{ folder: 'CPU', files: ['CPU/z.mp4', 'CPU/a.png', 'CPU/b.xlsx', 'CPU/c.pdf'].map((file) => ({ file, size: 1, mtime: 1 })), condense: [] }],
+  });
+  assert.deepEqual(d.files.map((f) => f.kind), ['pdf', 'office', 'image', 'video']);
+  // Cours sans PDF (un document Word seul) : pas de couverture PDF
+  const [w] = C.mergeDocuments({ id: 'a', documents: [{ folder: 'Chipset' }] }, { folders: [{ folder: 'Chipset', files: [{ file: 'Chipset/x.docx', size: 1, mtime: 1 }], condense: [] }] });
+  assert.equal(C.coverOf(w), null);
+  assert.equal(w.empty, false);
+});
+
+test('validate : cours en dossier', () => {
+  const errors = C.validate({ parts: [{ id: 'a', name: 'A', accent: '#ffffff', documents: [{ folder: '../x' }, { folder: 'Ok', date: '5 octobre' }, { folder: 'Ok' }, { folder: 'Z', files: ['a'] }] }] });
+  for (const re of [/« folder » doit être un nom de dossier/, /« date » doit être de la forme/, /« Ok » en double/, /« files » doit associer/]) assert.ok(errors.some((e) => re.test(e)), re);
+});
+
 test('formatSize', () => {
   assert.equal(C.formatSize(1258291), '1,2 Mo');
   assert.equal(C.formatSize(348160), '340 Ko');

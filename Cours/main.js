@@ -56,7 +56,7 @@ function applyTheme(mode) {
 }
 
 // ---------------------------------------------------------------------------
-// Résumés PDF : pdfs/<id de la partie>/*.pdf
+// Cours : pdfs/<id de la partie>/*.pdf (un PDF = un cours) et pdfs/<id>/<Cours>/ (PDF, photos, Condensé/)
 // ---------------------------------------------------------------------------
 
 /**
@@ -68,47 +68,74 @@ function pdfRoot() {
   return path.join(__dirname.replace(/app\.asar$/, 'app.asar.unpacked'), 'pdfs');
 }
 
-/** Chemin d'un PDF d'une partie, en refusant tout ce qui sortirait du dossier de la partie. */
-function pdfPath(partId, file) {
+/**
+ * Chemin d'un fichier d'une partie (« x.pdf », « Cours/x.png », « Cours/Condensé/x.pdf »), en refusant tout ce qui
+ * sortirait du dossier de la partie.
+ */
+function docPath(partId, rel) {
   const part = Content.parts.find((p) => p.id === partId);
-  if (!part || !Course.isPdfName(file)) throw new Error('Document inconnu.');
-  const dir = path.join(pdfRoot(), part.id);
-  const full = path.join(dir, file);
-  if (path.dirname(full) !== dir) throw new Error('Document inconnu.');
+  if (!part || !Course.isSafeRel(rel)) throw new Error('Document inconnu.');
+  const dir = path.resolve(pdfRoot(), part.id);
+  const full = path.resolve(dir, ...rel.split('/'));
+  if (!full.startsWith(dir + path.sep)) throw new Error('Document inconnu.');
   return full;
 }
 
-/** Fichiers PDF de chaque partie : { [partId]: [{ file, size, mtime }] } (dossier absent = aucun document). */
+/** Fichiers (PDF ou photos) d'un dossier : [{ file: 'chemin/relatif', size, mtime }] ; sous-dossiers à part. */
+async function readFolder(dir, prefix, accept) {
+  let entries = [];
+  try {
+    entries = await fsp.readdir(dir, { withFileTypes: true });
+  } catch {
+    return { files: [], dirs: [] };
+  }
+  const files = [];
+  const dirs = [];
+  for (const e of entries) {
+    if (e.isDirectory()) {
+      if (Course.isFolderName(e.name)) dirs.push(e.name);
+      continue;
+    }
+    if (!e.isFile() || !accept(e.name)) continue;
+    try {
+      const st = await fsp.stat(path.join(dir, e.name));
+      files.push({ file: prefix + e.name, size: st.size, mtime: Math.round(st.mtimeMs) });
+    } catch {
+      // fichier disparu entre-temps
+    }
+  }
+  return { files, dirs };
+}
+
+/**
+ * Contenu de chaque partie : { [partId]: { files, folders } } (dossier absent = aucun cours).
+ *   files   : PDF posés directement dans la partie (un cours chacun) ;
+ *   folders : un dossier = un cours : ses PDF et photos, et son condensé (sous-dossier « Condensé »).
+ */
 async function listDocuments() {
   const out = {};
+  const isDoc = (n) => Course.kindOf(n) !== '';
   for (const part of Content.parts) {
     const dir = path.join(pdfRoot(), part.id);
-    let entries = [];
-    try {
-      entries = await fsp.readdir(dir, { withFileTypes: true });
-    } catch {
-      entries = [];
+    const top = await readFolder(dir, '', Course.isPdfName);
+    const folders = [];
+    for (const name of top.dirs) {
+      const inner = await readFolder(path.join(dir, name), `${name}/`, isDoc);
+      let condense = [];
+      for (const sub of inner.dirs.filter(Course.isCondenseFolder)) condense = condense.concat((await readFolder(path.join(dir, name, sub), `${name}/${sub}/`, Course.isPdfName)).files);
+      folders.push({ folder: name, files: inner.files, condense });
     }
-    const files = [];
-    for (const e of entries) {
-      if (!e.isFile() || !Course.isPdfName(e.name)) continue;
-      try {
-        const st = await fsp.stat(path.join(dir, e.name));
-        files.push({ file: e.name, size: st.size, mtime: Math.round(st.mtimeMs) });
-      } catch {
-        // fichier disparu entre-temps
-      }
-    }
-    out[part.id] = files;
+    out[part.id] = { files: top.files, folders };
   }
   return out;
 }
 
 const MAX_PREVIEW_BYTES = 80 * 1024 * 1024; // aperçu : PDF lus entièrement par la page (pdf.js)
 
-/** Contenu d'un PDF pour l'aperçu de sa première page. */
+/** Contenu d'un PDF (aperçu de sa première page) ou d'une photo (miniature). */
 async function readDocument(partId, file) {
-  const full = pdfPath(partId, file);
+  const full = docPath(partId, file);
+  if (!['pdf', 'image'].includes(Course.kindOf(path.basename(full)))) return { ok: false, error: 'Pas d\'aperçu pour ce type de fichier.' };
   const st = await fsp.stat(full);
   if (st.size > MAX_PREVIEW_BYTES) return { ok: false, error: 'Fichier trop volumineux pour l\'aperçu.' };
   const buf = await fsp.readFile(full);
@@ -116,13 +143,18 @@ async function readDocument(partId, file) {
 }
 
 /**
- * Visionneuse : fenêtre avec le lecteur PDF intégré (zoom, recherche, impression, téléchargement).
+ * Visionneuse : fenêtre avec le lecteur PDF intégré (zoom, recherche, impression, téléchargement), ou la photo.
  * page : ouvre directement à cette page (sommaire), dans la fenêtre déjà ouverte s'il y en a une.
  */
 const viewers = new Map(); // chemin → fenêtre déjà ouverte
 async function openDocument(partId, file, title, page) {
-  const full = pdfPath(partId, file);
+  const full = docPath(partId, file);
   await fsp.access(full);
+  // Document Office (Word, Excel…) : ouvert avec le programme de l'ordinateur
+  if (Course.kindOf(path.basename(full)) === 'office') {
+    const error = await shell.openPath(full);
+    return error ? { ok: false, error: `Ouverture impossible : ${error}` } : { ok: true, external: true };
+  }
   const n = Number.isInteger(page) && page >= 1 && page <= 100000 ? page : 0;
   const url = pathToFileURL(full).href + (n ? `#page=${n}` : '');
   const open = viewers.get(full);
@@ -141,7 +173,7 @@ async function openDocument(partId, file, title, page) {
     minHeight: 400,
     title: `${String(title || file).slice(0, 120)} — Cours`,
     icon: ICON_FILE,
-    backgroundColor: '#525659',
+    backgroundColor: Course.kindOf(path.basename(full)) === 'video' ? '#000000' : '#525659', // vidéo : fond noir
     autoHideMenuBar: true,
     webPreferences: { plugins: true, contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, devTools: !app.isPackaged },
   });
@@ -154,13 +186,17 @@ async function openDocument(partId, file, title, page) {
   return { ok: true };
 }
 
-/** Télécharger : copie du PDF à l'endroit choisi (Téléchargements par défaut). */
+/** Télécharger : copie du fichier (PDF, photo, vidéo, document) à l'endroit choisi (Téléchargements par défaut). */
+const SAVE_LABELS = { pdf: ['Enregistrer le PDF', 'Document PDF'], image: ['Enregistrer la photo', 'Image'], video: ['Enregistrer la vidéo', 'Vidéo'], office: ['Enregistrer le document', 'Document'] };
 async function saveDocument(partId, file) {
-  const full = pdfPath(partId, file);
+  const full = docPath(partId, file);
+  const name = path.basename(full);
+  const ext = path.extname(name).slice(1).toLowerCase();
+  const [title, label] = SAVE_LABELS[Course.kindOf(name)] || ['Enregistrer', 'Fichier'];
   const res = await dialog.showSaveDialog(mainWindow, {
-    title: 'Enregistrer le résumé',
-    defaultPath: path.join(app.getPath('downloads'), file),
-    filters: [{ name: 'Document PDF', extensions: ['pdf'] }],
+    title,
+    defaultPath: path.join(app.getPath('downloads'), name),
+    filters: [{ name: label, extensions: [ext] }],
   });
   if (res.canceled || !res.filePath) return { ok: false, canceled: true };
   await fsp.copyFile(full, res.filePath);
