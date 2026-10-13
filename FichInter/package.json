@@ -1,0 +1,87 @@
+{
+  "name": "fichinter",
+  "productName": "FichInter",
+  "version": "0.1.0",
+  "description": "Fiches d'intervention remplies en quelques minutes : choix du modèle Word, formulaire adapté au modèle, fiche .docx générée, relue et vérifiée.",
+  "main": "main.js",
+  "author": "WaynneK",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node --test",
+    "build": "electron-builder --publish never",
+    "build:win": "electron-builder --win --publish never",
+    "build:linux": "electron-builder --linux --publish never"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "docx-preview": "0.3.7",
+    "jszip": "3.10.1"
+  },
+  "build": {
+    "appId": "com.waynnek.fichinter",
+    "productName": "FichInter",
+    "copyright": "© WaynneK",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "icon": "build/icon.png",
+    "files": [
+      "main.js",
+      "preload.js",
+      "preload-splash.js",
+      "lib/**/*",
+      "renderer/**/*",
+      "modeles/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "FichInter",
+      "artifactName": "FichInter-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "FichInter-Portable-${version}.${ext}"
+    },
+    "mac": {
+      "category": "public.app-category.business",
+      "identity": "-",
+      "hardenedRuntime": false
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office",
+      "executableName": "fichinter",
+      "artifactName": "FichInter-${version}-x86_64.${ext}"
+    }
+  }
+}

@@ -176,4 +176,34 @@ module.exports = [
       appImage: /^Cours-[\d.]+-x86_64\.AppImage$/,
     },
   },
+  {
+    id: 'fichinter',
+    name: 'FichInter',
+    tagline: 'Vos fiches d\'intervention',
+    description: 'Modèle Word au choix, formulaire adapté à ses cases, fiche .docx générée et vérifiée.',
+    icon: 'fichinter.svg',
+    accent: '#3b82f6',
+    features: ['Modèles Word', 'Formulaire adapté', 'Signature', 'Fiche vérifiée'],
+    status: 'available',
+    downloadUrl: null,
+    windows: {
+      displayName: 'FichInter',
+      exe: 'FichInter.exe',
+      defaultDir: ['LOCALAPPDATA', 'Programs', 'FichInter'],
+    },
+    linux: {
+      appImagePrefix: 'FichInter-',
+      bin: 'fichinter',
+    },
+    mac: {
+      app: 'FichInter.app',
+    },
+    local: {
+      project: 'FichInter',
+      winExe: ['dist/win-unpacked/FichInter.exe'],
+      winPortable: /^FichInter-Portable-[\d.]+\.exe$/,
+      winInstaller: /^FichInter-Setup-[\d.]+\.exe$/,
+      appImage: /^FichInter-[\d.]+-x86_64\.AppImage$/,
+    },
+  },
 ];

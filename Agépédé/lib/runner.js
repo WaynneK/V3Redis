@@ -216,6 +216,80 @@ async function detectEnvironment(options = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Lecture de l'annuaire (bouton « Rafraîchir l'AD »)
+// ---------------------------------------------------------------------------
+
+/**
+ * Script PowerShell en lecture seule : OU, comptes utilisateurs et groupes du domaine du poste, par ADSI
+ * (System.DirectoryServices, présent sur tout Windows joint au domaine, sans RSAT). Sortie JSON en ASCII
+ * (caractères non ASCII en \uXXXX) : indépendante de la page de code de la console.
+ */
+const READ_DIRECTORY_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  "$base = [string]([ADSI]'LDAP://RootDSE').defaultNamingContext",
+  "if (-not $base) { throw 'Domaine introuvable' }",
+  'function Find($filter, $props) {',
+  "  $s = New-Object System.DirectoryServices.DirectorySearcher([ADSI]('LDAP://' + $base), $filter)",
+  '  $s.PageSize = 1000',
+  '  foreach ($p in $props) { [void]$s.PropertiesToLoad.Add($p) }',
+  '  $all = $s.FindAll()',
+  '  try {',
+  '    foreach ($e in $all) {',
+  '      $o = [ordered]@{}',
+  '      foreach ($p in $props) {',
+  '        $v = $e.Properties[$p]',
+  '        if ($v -and $v.Count -gt 1) { $o[$p] = @($v | ForEach-Object { [string]$_ }) } elseif ($v -and $v.Count -eq 1) { $o[$p] = [string]$v[0] } else { $o[$p] = $null }',
+  '      }',
+  '      [pscustomobject]$o',
+  '    }',
+  '  } finally { $all.Dispose() }',
+  '}',
+  '$out = [ordered]@{',
+  '  base = $base',
+  "  ous = @(Find '(objectCategory=organizationalUnit)' @('distinguishedname', 'description'))",
+  "  users = @(Find '(&(objectCategory=person)(objectClass=user))' @('distinguishedname', 'samaccountname', 'displayname', 'givenname', 'sn'))",
+  "  groups = @(Find '(objectCategory=group)' @('distinguishedname', 'samaccountname', 'grouptype', 'description', 'member'))",
+  '}',
+  '$json = $out | ConvertTo-Json -Depth 5 -Compress',
+  "[regex]::Replace($json, '[^\\x00-\\x7F]', { param($m) '\\u{0:x4}' -f [int][char]$m.Value })",
+].join('\n');
+
+/**
+ * Lit l'annuaire du domaine du poste → { ok, directory } (Agdlp.directoryFromAdsi) ou { ok: false, error }.
+ * options.exec(file, args, opts) → Promise<{ code, stdout, stderr }> : remplaçant pour les tests.
+ */
+async function readDirectory(options = {}) {
+  const exec =
+    options.exec ||
+    ((file, args, opts) =>
+      new Promise((resolve) => {
+        childProcess.execFile(file, args, opts, (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout: String(stdout || ''), stderr: String(stderr || (err && err.message) || ''), timedOut: Boolean(err && err.killed) }));
+      }));
+  const r = await exec('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', READ_DIRECTORY_SCRIPT], {
+    windowsHide: true,
+    timeout: options.timeoutMs || 90000,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (r.timedOut) return { ok: false, error: "Lecture de l'annuaire trop longue : contrôleur de domaine injoignable ?" };
+  const text = String(r.stdout || '').replace(/^﻿/, '').trim();
+  if (r.code !== 0 || !text.startsWith('{')) {
+    // Message de PowerShell : première ligne utile (sans le détail « Au caractère … »)
+    const msg = String(r.stderr || r.stdout || '')
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .find((l) => l && !/^(Au caractère|At line|\+|CategoryInfo|FullyQualifiedErrorId)/i.test(l));
+    return { ok: false, error: `Annuaire injoignable${msg ? ` : ${msg.replace(/^Exception lors de l'appel de .*?»\s*/, '')}` : ''}. Le poste doit être joint au domaine et le contrôleur de domaine joignable.` };
+  }
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return { ok: false, error: "Réponse de l'annuaire illisible." };
+  }
+  return { ok: true, directory: Agdlp.directoryFromAdsi(raw, Date.now()) };
+}
+
+// ---------------------------------------------------------------------------
 // Exécution des étapes
 // ---------------------------------------------------------------------------
 
@@ -398,4 +472,4 @@ async function runSteps(steps, options = {}) {
   return summary;
 }
 
-module.exports = { runCommand, runSteps, detectEnvironment, decodeOutput, decodeCp850, killTree, checkSaysExists, firstDn, unsafeStep, timeoutFor, TOOLS };
+module.exports = { runCommand, runSteps, detectEnvironment, readDirectory, READ_DIRECTORY_SCRIPT, decodeOutput, decodeCp850, killTree, checkSaysExists, firstDn, unsafeStep, timeoutFor, TOOLS };

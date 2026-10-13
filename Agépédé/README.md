@@ -55,6 +55,16 @@ directement depuis l'application.
 
 1. **Domaine** : nom DNS (`lab.local`) ; le DN (`DC=lab,DC=local`) et le nom NetBIOS (`LAB`) sont calculés et restent modifiables.
    « Détecter » lit le domaine de la machine et vérifie les outils AD, les droits administrateur et le type de Windows.
+   **« ↻ Rafraîchir l'AD »** (ou F5) relit l'annuaire : OU, utilisateurs et groupes déjà présents, y compris ceux créés
+   à la main (Utilisateurs et ordinateurs Active Directory…). Lecture seule par ADSI (`[ADSI]`, PowerShell), sans RSAT,
+   sur tout poste joint au domaine ; faite aussi automatiquement à l'ouverture et après chaque exécution. Ensuite :
+   - sous les onglets OU, Utilisateurs, GG et DL, un panneau **« Déjà dans l'Active Directory »** les liste (recherche,
+     emplacement, membres) ; « Ajouter au tableau » reprend une OU ou un groupe existant, pour lui ajouter des membres ;
+   - les lignes du projet qui existent déjà portent une pastille **AD** (elles ne seront pas recréées) ;
+   - les suggestions (OU, groupes, membres) incluent les objets de l'annuaire ;
+   - la vérification cherche dans l'annuaire ce qui n'est pas dans les tableaux : plus de « supposé existant », mais
+     « introuvable dans l'Active Directory » quand il manque, et les conflits (identifiant déjà pris ailleurs, groupe
+     d'une autre portée…). Un annuaire d'un autre domaine que celui du projet n'est pas utilisé.
 2. **Onglets OU, Utilisateurs, GG, DL, Dossiers, Permissions** : une ligne par objet. La ligne vide du bas devient une vraie ligne dès qu'on y tape.
    - Entrée / Maj+Entrée : ligne suivante / précédente, Tab : cellule suivante, Ctrl+Suppr : supprimer la ligne.
    - **Coller depuis Excel** : un bloc de cellules copié (lignes et colonnes) remplit le tableau à partir de la cellule active ;
@@ -63,6 +73,9 @@ directement depuis l'application.
    - Onglet Utilisateurs : un **mot de passe par défaut** sert aux lignes sans mot de passe ; « Changer le mot de passe à la
      première connexion » est coché par défaut. Les comptes s'ajoutent ensuite dans les GG (colonne Membres, suggestions).
    - Onglet DL : « Créer les DL pour un GG » ajoute `DL_<Nom>_R` et `DL_<Nom>_RW` contenant ce GG.
+   - Onglet Permissions : le bouton **✂ Casser l'héritage** de chaque ligne casse l'héritage du dossier partagé pour n'y
+     laisser que les DL (ligne ajoutée ou basculée dans l'onglet Dossiers ; « Casser l'héritage de tous ces dossiers »
+     pour tout le tableau). Le script casse l'héritage avant de donner les droits aux DL.
    - Onglet Dossiers : le bouton **Héritage** de chaque ligne bascule entre « Conservé » et « Cassé » (ou « Casser l'héritage
      partout »). Casser = `icacls /inheritance:d` (droits hérités recopiés), puis, option cochée par défaut, retrait
      d'« Utilisateurs » et « Utilisateurs authentifiés » : seuls les administrateurs et les DL de l'onglet Permissions gardent l'accès.

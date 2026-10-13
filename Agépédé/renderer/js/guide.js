@@ -288,6 +288,7 @@
         c.appendChild(para('Tout en haut, le **domaine visé** et l\'**état du poste**. Pour exécuter, Agépédé doit tourner **en administrateur** sur un **contrôleur de domaine** ou sur un poste du domaine équipé des outils **RSAT « AD DS »**.'));
         c.appendChild(figure('domain', 'Barre du domaine : poste Windows Server non lancé en administrateur.'));
         c.appendChild(para('Sans outils AD (ou hors domaine), tout le reste fonctionne : saisie, vérification et export du script `.bat` pour le lancer sur le serveur.'));
+        c.appendChild(para('**↻ Rafraîchir l\'AD** ([[F5]]) relit l\'annuaire (lecture seule) : les OU, utilisateurs et groupes **déjà présents**, même créés à la main, s\'affichent sous chaque tableau (« Déjà dans l\'Active Directory »). Les lignes du projet qui existent déjà portent une pastille **AD**, les suggestions les proposent et la vérification signale ce qui manque vraiment. La lecture est faite aussi à l\'ouverture et après chaque exécution.'));
       },
     },
     {
@@ -310,6 +311,7 @@
         c.appendChild(figure('folders', 'Onglet Dossiers : le bouton Héritage de chaque ligne.'));
         c.appendChild(para('**Casser l\'héritage** d\'un dossier (`icacls /inheritance:d`) : il ne reprend plus les autorisations de son dossier parent. Les droits hérités sont d\'abord recopiés, puis « Utilisateurs » et « Utilisateurs authentifiés » sont retirés (option cochée) : seuls les administrateurs et les groupes DL de l\'onglet Permissions y ont accès.'));
         c.appendChild(figure('permissions', 'Onglet Permissions.'));
+        c.appendChild(para('Dans l\'onglet **Permissions**, le bouton **✂ Casser l\'héritage** de chaque ligne casse l\'héritage du **dossier partagé** pour n\'y laisser que les DL : le dossier est ajouté (ou basculé) dans l\'onglet Dossiers, et le script casse l\'héritage **avant** de donner les droits aux DL. « Casser l\'héritage de tous ces dossiers » le fait pour tout le tableau.'));
       },
     },
     {

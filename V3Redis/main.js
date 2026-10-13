@@ -226,8 +226,10 @@ async function detect(entry) {
 const PROJECTS_ROOT = app.isPackaged ? process.env.HUB_PROJECTS_DIR || null : path.resolve(__dirname, '..');
 
 // Applications embarquées par l'installeur du HUB (scripts/build-setup.js) : <HUB>\resources\apps\<id>\.
-// En développement, HUB_BUNDLE_DIR permet de pointer vers un dossier « apps » pour tester.
-const BUNDLE_ROOT = app.isPackaged ? path.join(process.resourcesPath, 'apps') : process.env.HUB_BUNDLE_DIR || null;
+// En développement : HUB_BUNDLE_DIR pour pointer vers un dossier « apps » de test, sinon bundle/ (rempli par
+// « npm run build ») : une application dont le projet est absent (ex. SysInfo Lite) reste lançable.
+const DEV_BUNDLE = path.join(__dirname, 'bundle');
+const BUNDLE_ROOT = app.isPackaged ? path.join(process.resourcesPath, 'apps') : process.env.HUB_BUNDLE_DIR || DEV_BUNDLE;
 
 /** Applications installables / désinstallables depuis le HUB (Windows) : voir app-manager.js. */
 const manager = AppManager.createManager({

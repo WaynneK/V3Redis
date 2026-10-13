@@ -1,8 +1,8 @@
 # HUB
 
 Point d'entrée vers les applications : **SysInfo Lite**, **CalkIP**, **PredF** (fusion et conversion de PDF),
-**Agépédé** (OU et groupes Active Directory en AGDLP, pour Windows Server) et **Cours** (résumés de la formation :
-M.Julia, A.Julia et Microsoft Office).
+**Agépédé** (OU et groupes Active Directory en AGDLP, pour Windows Server), **Cours** (résumés de la formation :
+M.Julia, A.Julia et Microsoft Office) et **FichInter** (fiches d'intervention remplies à partir d'un modèle Word).
 
 Ajouter une application plus tard : son projet dans un dossier voisin (ex. `..\PredF`), une entrée dans `apps.js` avec `status: 'soon'` (affichée « Bientôt disponible »), puis `'available'` quand elle est prête. La détection, le lancement et l'installeur la prennent alors en compte sans autre changement.
 

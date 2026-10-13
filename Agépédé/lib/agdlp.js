@@ -482,9 +482,15 @@
    * Contrôle complet du projet avant génération.
    * Renvoie { errors: [...], warnings: [...] }, chaque élément { table, id, field, message }.
    */
-  function validateProject(project) {
+  /**
+   * options.directory : annuaire lu (directoryFromAdsi) — les objets « supposés exister dans l'AD » y sont
+   * cherchés : plus d'avertissement s'ils existent, avertissement précis s'ils manquent ou s'il y a un conflit.
+   */
+  function validateProject(project, options) {
     const p = normalizeProject(project);
     const issues = { errors: [], warnings: [] };
+    const ad = directoryIndex(options && options.directory, p.domain);
+    const adAt = ad ? readAt(ad.at) : '';
     const err = (table, id, field, message) => issues.errors.push({ table, id, field, message });
     const warn = (table, id, field, message) => issues.warnings.push({ table, id, field, message });
 
@@ -513,9 +519,15 @@
       else ouPaths.set(key, row);
     }
     const ouKnown = (path) => ouPaths.has(nameKey(ouSegments(path).join('/')));
+    const ouInAd = (path) => Boolean(ad && ad.ous.has(nameKey(ouSegments(path).join('/'))));
+    /** Message pour une OU absente du tableau : elle doit exister dans l'AD (vérifié si l'annuaire a été lu). */
+    const missingOu = (path, what) =>
+      ad
+        ? `${what} « ${path} » n'est ni dans le tableau des OU ni dans l'Active Directory (${adAt}) : la création échouera. Ajoutez-la au tableau des OU.`
+        : `${what} « ${path} » n'est pas dans le tableau${what === "L'OU parente" ? '' : ' des OU'} : elle doit déjà exister dans l'Active Directory.`;
     for (const row of p.ous) {
       const parent = ouSegments(row.parent).join('/');
-      if (parent && !ouKnown(parent)) warn('ous', row.id, 'parent', `L'OU parente « ${parent} » n'est pas dans le tableau : elle doit déjà exister dans l'Active Directory.`);
+      if (parent && !ouKnown(parent) && !ouInAd(parent)) warn('ous', row.id, 'parent', missingOu(parent, "L'OU parente"));
     }
     /** Chemin d'OU d'une ligne (utilisateur, groupe) : erreur sur un niveau invalide, avertissement si absent. */
     const checkOuCell = (table, row) => {
@@ -527,9 +539,7 @@
           return;
         }
       }
-      if (segs.length && !ouKnown(row.ou)) {
-        warn(table, row.id, 'ou', `L'OU « ${segs.join('/')} » n'est pas dans le tableau des OU : elle doit déjà exister dans l'Active Directory.`);
-      }
+      if (segs.length && !ouKnown(row.ou) && !ouInAd(row.ou)) warn(table, row.id, 'ou', missingOu(segs.join('/'), "L'OU"));
     };
 
     // --- Utilisateurs (A) -------------------------------------------------
@@ -584,6 +594,16 @@
         if (objectDns.has(dnKey)) err('users', row.id, 'lastName', `Un autre utilisateur du tableau s'appelle déjà « ${display} » dans cette OU : ajoutez une initiale ou changez d'OU.`);
         objectDns.set(dnKey, 'user');
       }
+      // Déjà dans l'annuaire : même compte (laissé tel quel à l'exécution) ou identifiant pris ailleurs
+      if (ad && !e && !personError) {
+        const found = ad.users.get(nameKey(row.login));
+        const dn = `CN=${escapeRdn(display)},${containerDn(row.ou, baseDnOf(p.domain))}`;
+        if (found && found.dn.toLowerCase() !== dn.toLowerCase()) {
+          warn('users', row.id, 'login', `L'identifiant « ${row.login} » existe déjà dans l'Active Directory (« ${found.display} », ${found.where || 'autre emplacement'}) : ce compte ne pourra pas être créé ici. Corrigez l'OU ou le nom, ou retirez la ligne.`);
+        } else if (!found && ad.groups.has(nameKey(row.login))) {
+          err('users', row.id, 'login', `« ${row.login} » est déjà le nom d'un groupe dans l'Active Directory : un compte ne peut pas porter le même nom.`);
+        }
+      }
     }
     const isUser = (name) => users.has(nameKey(name));
 
@@ -608,6 +628,18 @@
         // … et le même conteneur : même nom affiché qu'un utilisateur de la même OU = même DN
         else if (objectDns.get(dnKeyOf(row.name, row.ou)) === 'user') {
           err(table, row.id, 'name', `Un utilisateur du tableau s'affiche déjà « ${row.name} » dans cette OU : le groupe aurait le même DN (CN=${row.name}). Renommez le groupe ou changez d'OU.`);
+        }
+        // Déjà dans l'annuaire : même groupe (seuls les membres seront ajoutés), ailleurs, ou d'une autre portée
+        if (ad && !ouSegments(row.ou).some((s) => validateName('ou', s))) {
+          const found = ad.groups.get(key);
+          const dn = `CN=${escapeRdn(row.name)},${containerDn(row.ou, baseDnOf(p.domain))}`;
+          if (found && found.dn.toLowerCase() !== dn.toLowerCase()) {
+            warn(table, row.id, 'name', `Le groupe « ${row.name} » existe déjà dans l'Active Directory (${found.where || 'autre emplacement'}) : il ne pourra pas être créé ici. Mettez la même OU que dans l'annuaire pour lui ajouter des membres.`);
+          } else if (found && found.scope !== scope) {
+            warn(table, row.id, 'name', `« ${row.name} » existe déjà dans l'Active Directory comme groupe ${SCOPE_LABELS[found.scope] || found.scope}, pas ${scope === 'global' ? 'global' : 'domaine local'} : il ne sera pas recréé, sa portée reste celle de l'annuaire.`);
+          } else if (!found && ad.users.has(key)) {
+            err(table, row.id, 'name', `« ${row.name} » est déjà l'identifiant d'un compte dans l'Active Directory : un groupe ne peut pas porter le même nom.`);
+          }
         }
       }
       checkOuCell(table, row);
@@ -654,6 +686,14 @@
           continue;
         }
         if (isUser(m)) continue; // compte créé par l'onglet Utilisateurs
+        if (ad) {
+          // Annuaire lu : le membre y est cherché (les membres d'un GG sont recherchés comme comptes utilisateurs)
+          if (ad.users.has(mk)) continue;
+          const g = ad.groups.get(mk);
+          if (g) warn('globals', row.id, 'members', `« ${m} » est un groupe ${SCOPE_LABELS[g.scope] || ''} de l'Active Directory, pas un compte : il est cherché comme utilisateur, l'ajout échouera. En AGDLP, un groupe global contient des comptes.`);
+          else warn('globals', row.id, 'members', `« ${m} » n'est ni dans le tableau des utilisateurs ni dans l'Active Directory (${adAt}) : l'ajout échouera.`);
+          continue;
+        }
         if (mk.startsWith(PREFIXES.local.toLowerCase())) {
           warn('globals', row.id, 'members', `« ${m} » ressemble à un groupe domaine local absent du tableau : il sera cherché comme utilisateur, et un groupe global ne peut pas contenir de groupe domaine local.`);
         } else if (mk.startsWith(PREFIXES.global.toLowerCase())) {
@@ -688,6 +728,11 @@
           warn('locals', row.id, 'members', `« ${m} » est un groupe domaine local imbriqué dans « ${row.name} » : autorisé dans le même domaine, mais hors du schéma AGDLP strict (préférez y mettre des groupes globaux).`);
           if (!dlEdges.has(nameKey(row.name))) dlEdges.set(nameKey(row.name), []);
           dlEdges.get(nameKey(row.name)).push(mk);
+        } else if (ad) {
+          const g = ad.groups.get(mk);
+          if (g && g.scope === 'local') warn('locals', row.id, 'members', `« ${m} » est un groupe domaine local de l'Active Directory, imbriqué dans « ${row.name} » : autorisé, mais hors du schéma AGDLP strict (préférez y mettre des groupes globaux).`);
+          else if (!g && ad.users.has(mk)) warn('locals', row.id, 'members', `« ${m} » est un compte de l'Active Directory, pas un groupe : il est cherché comme groupe, l'ajout échouera. En AGDLP, mettez ce compte dans un groupe global.`);
+          else if (!g) warn('locals', row.id, 'members', `« ${m} » n'est ni dans le tableau des groupes globaux ni dans l'Active Directory (${adAt}) : l'ajout échouera.`);
         } else {
           warn('locals', row.id, 'members', `« ${m} » n'est pas dans le tableau des groupes globaux : groupe supposé existant dans l'Active Directory (il sera cherché avec dsquery group).`);
         }
@@ -730,6 +775,11 @@
           warn('permissions', row.id, 'group', `« ${row.group} » est un groupe global : en AGDLP, les droits se donnent aux groupes domaine local (mettez ${row.group} dans un DL et donnez le droit au DL).`);
         } else if (scope === 'local') {
           dlWithPerm.add(nameKey(row.group));
+        } else if (ad) {
+          const g = ad.groups.get(nameKey(row.group));
+          if (g && g.scope === 'global') warn('permissions', row.id, 'group', `« ${row.group} » est un groupe global de l'Active Directory : en AGDLP, les droits se donnent aux groupes domaine local.`);
+          else if (!g && !ad.users.has(nameKey(row.group))) warn('permissions', row.id, 'group', `« ${row.group} » n'est ni dans le tableau des groupes domaine local ni dans l'Active Directory (${adAt}) : icacls échouera.`);
+          else if (!g) warn('permissions', row.id, 'group', `« ${row.group} » est un compte de l'Active Directory : en AGDLP, les droits se donnent aux groupes domaine local, jamais directement aux utilisateurs.`);
         } else {
           warn('permissions', row.id, 'group', `« ${row.group} » n'est pas dans le tableau des groupes domaine local : groupe supposé existant dans l'Active Directory.`);
         }
@@ -771,7 +821,8 @@
       const inSomeGg = new Set();
       for (const row of p.globals) for (const m of splitMembers(row.members)) inSomeGg.add(nameKey(m));
       for (const row of p.users) {
-        if (validateName('user', row.login) || inSomeGg.has(nameKey(row.login))) continue;
+        // Compte déjà membre d'un groupe global dans l'annuaire : rien à signaler
+        if (validateName('user', row.login) || inSomeGg.has(nameKey(row.login)) || (ad && ad.inGlobal.has(nameKey(row.login)))) continue;
         warn('users', row.id, 'login', `L'utilisateur « ${row.login} » n'est membre d'aucun groupe global : ajoutez-le dans la colonne Membres de l'onglet GG.`);
       }
     }
@@ -798,6 +849,144 @@
   function isNestedGg(p, name) {
     const k = nameKey(name);
     return p.globals.some((r) => splitMembers(r.members).some((m) => nameKey(m) === k));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Annuaire lu (bouton « Rafraîchir l'AD ») : OU, comptes et groupes déjà présents dans Active Directory
+  // ---------------------------------------------------------------------------
+
+  /** Valeur d'un RDN sans échappements : « R\,D » → « R,D », « \C3\A9 » (UTF-8 en hexadécimal) → « é ». */
+  function unescapeRdn(value) {
+    return str(value)
+      .replace(/(?:\\[0-9a-fA-F]{2})+/g, (hex) => {
+        try {
+          return decodeURIComponent(hex.replace(/\\/g, '%'));
+        } catch (e) {
+          return hex;
+        }
+      })
+      .replace(/\\(.)/g, '$1');
+  }
+
+  /** RDN d'un DN sous la base du domaine (du plus proche au plus haut) : [{ type: 'ou'|'cn'…, value }] ; null hors base. */
+  function relativeRdns(dn, baseDn) {
+    const rdns = splitDn(dn);
+    const base = splitDn(baseDn);
+    if (!base.length || rdns.length < base.length) return null;
+    const key = (r) => r.replace(/\s*=\s*/, '=').toLowerCase();
+    const tail = rdns.slice(rdns.length - base.length);
+    if (tail.some((r, i) => key(r) !== key(base[i]))) return null;
+    return rdns.slice(0, rdns.length - base.length).map((r) => {
+      const eq = r.indexOf('=');
+      return { type: r.slice(0, eq).trim().toLowerCase(), value: unescapeRdn(r.slice(eq + 1).trim()) };
+    });
+  }
+
+  /**
+   * Emplacement d'un objet (utilisateur, groupe) : { ou, where } — ou = chemin d'OU (« Paris/Compta »), '' pour le
+   * conteneur Users (comme une cellule OU vide), null ailleurs (Builtin…) ; where = libellé affiché.
+   */
+  function placeOf(dn, baseDn) {
+    const rel = relativeRdns(dn, baseDn);
+    if (!rel || !rel.length) return { ou: null, where: '' };
+    const parent = rel.slice(1);
+    if (parent.length && parent.every((r) => r.type === 'ou')) {
+      const path = parent.map((r) => r.value).reverse().join('/');
+      return { ou: path, where: path };
+    }
+    if (parent.length === 1 && parent[0].type === 'cn' && nameKey(parent[0].value) === 'users') return { ou: '', where: 'Users' };
+    return { ou: null, where: parent.map((r) => r.value).reverse().join('/') || '(racine)' };
+  }
+
+  /** Portée d'un groupe d'après groupType : 0x2 global, 0x4 domaine local, 0x8 universel ; bit de signe = sécurité. */
+  function groupScope(groupType) {
+    const t = Number(groupType) | 0;
+    if (t & 0x2) return 'global';
+    if (t & 0x4) return 'local';
+    if (t & 0x8) return 'universal';
+    return 'other';
+  }
+
+  /**
+   * Annuaire lu par ADSI (main.js) → { base, at, ous, users, groups } triés.
+   *   ous    : [{ path, dn, description }]
+   *   users  : [{ login, display, firstName, lastName, dn, ou, where }]
+   *   groups : [{ name, scope, security, dn, ou, where, description, members: [noms] }]
+   * Les valeurs absentes ou multiples sont tolérées (ConvertTo-Json renvoie une valeur seule ou un tableau).
+   */
+  function directoryFromAdsi(raw, at) {
+    const src = raw && typeof raw === 'object' ? raw : {};
+    const list = (v) => (v === undefined || v === null ? [] : Array.isArray(v) ? v : [v]);
+    const one = (v) => str(list(v)[0]);
+    const base = one(src.base);
+    const cnOf = (dn) => {
+      const first = splitDn(dn)[0] || '';
+      return unescapeRdn(first.slice(first.indexOf('=') + 1).trim());
+    };
+    const ous = [];
+    for (const o of list(src.ous)) {
+      const dn = one(o && o.distinguishedname);
+      const rel = relativeRdns(dn, base);
+      if (!rel || !rel.length || rel.some((r) => r.type !== 'ou')) continue;
+      ous.push({ path: rel.map((r) => r.value).reverse().join('/'), dn, description: one(o.description) });
+    }
+    const byDn = new Map(); // DN (minuscules) → nom de compte, pour les membres des groupes
+    const users = [];
+    for (const u of list(src.users)) {
+      const dn = one(u && u.distinguishedname);
+      if (!dn) continue;
+      const login = one(u.samaccountname) || cnOf(dn);
+      const place = placeOf(dn, base);
+      users.push({ login, display: one(u.displayname) || cnOf(dn), firstName: one(u.givenname), lastName: one(u.sn), dn, ou: place.ou, where: place.where });
+      byDn.set(dn.toLowerCase(), login);
+    }
+    const groups = [];
+    for (const g of list(src.groups)) {
+      const dn = one(g && g.distinguishedname);
+      if (!dn) continue;
+      const name = one(g.samaccountname) || cnOf(dn);
+      const place = placeOf(dn, base);
+      const type = Number(one(g.grouptype)) | 0;
+      groups.push({ name, scope: groupScope(type), security: type < 0, dn, ou: place.ou, where: place.where, description: one(g.description), memberDns: list(g.member).map(str).filter(Boolean) });
+      byDn.set(dn.toLowerCase(), name);
+    }
+    for (const g of groups) {
+      g.members = g.memberDns.map((m) => byDn.get(m.toLowerCase()) || cnOf(m)).sort((a, b) => a.localeCompare(b, 'fr'));
+      delete g.memberDns;
+    }
+    const byName = (k) => (a, b) => str(a[k]).localeCompare(str(b[k]), 'fr');
+    return { base, at: Number(at) || Date.now(), ous: ous.sort(byName('path')), users: users.sort(byName('login')), groups: groups.sort(byName('name')) };
+  }
+
+  /** Même domaine (DN de base, casse et espaces ignorés) ? */
+  function sameBase(a, b) {
+    const k = (dn) => splitDn(dn).map((r) => r.replace(/\s*=\s*/, '=').toLowerCase()).join(',');
+    return Boolean(str(a).trim()) && k(a) === k(b);
+  }
+
+  /**
+   * Index de recherche d'un annuaire lu, s'il concerne bien le domaine du projet (sinon null) :
+   * { at, ous: Map(chemin → OU), users: Map(identifiant → compte), groups: Map(nom → groupe), inGlobal: Set(identifiants) }.
+   */
+  function directoryIndex(directory, domain) {
+    const d = directory;
+    if (!d || typeof d !== 'object' || !sameBase(d.base, baseDnOf(domain))) return null;
+    const idx = { at: d.at, ous: new Map(), users: new Map(), groups: new Map(), inGlobal: new Set() };
+    for (const o of d.ous || []) idx.ous.set(nameKey(o.path), o);
+    for (const u of d.users || []) idx.users.set(nameKey(u.login), u);
+    for (const g of d.groups || []) {
+      idx.groups.set(nameKey(g.name), g);
+      if (g.scope === 'global') for (const m of g.members || []) idx.inGlobal.add(nameKey(m));
+    }
+    return idx;
+  }
+
+  const SCOPE_LABELS = { global: 'global', local: 'domaine local', universal: 'universel', other: 'de distribution' };
+
+  /** « lu à 14:32 » pour les messages de vérification. */
+  function readAt(at) {
+    const d = new Date(Number(at) || Date.now());
+    return `lu à ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }
 
   // ---------------------------------------------------------------------------
@@ -1539,6 +1728,11 @@
     validateName,
     nameWarnings,
     validateProject,
+    directoryFromAdsi,
+    directoryIndex,
+    unescapeRdn,
+    groupScope,
+    placeOf,
     plan,
     lookupQuery,
     addMemberCommand,

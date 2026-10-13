@@ -45,6 +45,7 @@
         <input type="text" id="dom-netbios" placeholder="LAB" autocomplete="off" spellcheck="false" />
       </label>
       <button type="button" class="btn" id="btn-detect" title="Détecter le domaine de cette machine et les outils Active Directory">Détecter</button>
+      <button type="button" class="btn btn-refresh" id="btn-refresh-ad" title="Relire l'Active Directory (F5) : OU, utilisateurs et groupes déjà présents, y compris ceux créés à la main"><span class="refresh-icon" aria-hidden="true">↻</span> Rafraîchir l'AD</button>
       <div class="chips" id="env-chips" aria-live="polite"></div>
     </section>
 
@@ -70,6 +71,7 @@
           </div>
         </div>
         <div class="grid-wrap" id="grid-ous"></div>
+        <section class="ad-panel" id="ad-ous" data-table="ous" aria-label="OU déjà dans l'Active Directory"></section>
       </section>
 
       <!-- 2. Utilisateurs -->
@@ -90,6 +92,7 @@
           <label class="check" title="Option « L'utilisateur doit changer le mot de passe à la prochaine ouverture de session »"><input type="checkbox" id="opt-must-change" /> Changer le mot de passe à la première connexion</label>
         </div>
         <div class="grid-wrap" id="grid-users"></div>
+        <section class="ad-panel" id="ad-users" data-table="users" aria-label="Utilisateurs déjà dans l'Active Directory"></section>
       </section>
 
       <!-- 3. Groupes globaux -->
@@ -103,6 +106,7 @@
           </div>
         </div>
         <div class="grid-wrap" id="grid-globals"></div>
+        <section class="ad-panel" id="ad-globals" data-table="globals" aria-label="Groupes globaux déjà dans l'Active Directory"></section>
       </section>
 
       <!-- 3. Groupes domaine local -->
@@ -122,6 +126,7 @@
           <span class="helper-note" id="dl-helper-note">Ajoute deux groupes domaine local (lecture, modification) contenant ce groupe global, dans la même OU.</span>
         </div>
         <div class="grid-wrap" id="grid-locals"></div>
+        <section class="ad-panel" id="ad-locals" data-table="locals" aria-label="Groupes domaine local déjà dans l'Active Directory"></section>
       </section>
 
       <!-- 5. Dossiers -->
@@ -145,13 +150,18 @@
       <!-- 6. Permissions -->
       <section class="view" id="view-permissions" data-view="permissions" hidden>
         <div class="toolbar">
-          <p class="hint">Permissions NTFS (le <b>P</b> de AGDLP) : le groupe domaine local reçoit le droit sur le dossier (icacls, hérité par les sous-dossiers et fichiers). Chemin local du serveur de fichiers ou UNC, par exemple <code>D:\Partages\Compta</code>.</p>
+          <p class="hint">Permissions NTFS (le <b>P</b> de AGDLP) : le groupe domaine local reçoit le droit sur le dossier (icacls, hérité par les sous-dossiers et fichiers). Chemin local du serveur de fichiers ou UNC, par exemple <code>D:\Partages\Compta</code>. Bouton <b>✂ Casser l'héritage</b> : le dossier partagé ne reprend plus les droits de son parent, seuls les DL (et les administrateurs) y ont accès.</p>
           <div class="toolbar-actions">
             <label class="check" title="Crée aussi les dossiers des permissions qui ne sont pas dans l'onglet Dossiers"><input type="checkbox" id="opt-create-folders" /> Créer les dossiers absents</label>
             <button type="button" class="btn" data-action="add-row" data-table="permissions">+ Ajouter une ligne</button>
             <button type="button" class="btn" data-action="import-csv" data-table="permissions">Importer CSV…</button>
             <button type="button" class="btn" data-action="export-csv" data-table="permissions">Exporter CSV…</button>
           </div>
+        </div>
+        <div class="helper" id="perm-inherit">
+          <button type="button" class="btn" id="btn-break-perms" title="Casse l'héritage de chaque dossier de ce tableau, avant de donner les droits aux DL">✂ Casser l'héritage de tous ces dossiers</button>
+          <label class="check" title="Après avoir cassé l'héritage, retire les groupes Utilisateurs (S-1-5-32-545) et Utilisateurs authentifiés (S-1-5-11) recopiés du dossier parent : seuls les administrateurs et les DL gardent l'accès"><input type="checkbox" id="opt-strip-users-perm" /> En cassant l'héritage, retirer « Utilisateurs » et « Utilisateurs authentifiés »</label>
+          <span class="helper-note" id="perm-inherit-note"></span>
         </div>
         <div class="grid-wrap" id="grid-permissions"></div>
       </section>

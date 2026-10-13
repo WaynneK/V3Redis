@@ -324,6 +324,41 @@ async function detectEnv() {
 }
 
 /**
+ * Annuaire fictif du mode de test (lab.local) : une partie du projet d'exemple « existe déjà » (OU Paris et
+ * Paris/Groupes, jdupont, GG_Compta), plus des objets créés à la main hors d'Agépédé.
+ */
+const FAKE_DIRECTORY = {
+  base: 'DC=lab,DC=local',
+  ous: [
+    { distinguishedname: 'OU=Paris,DC=lab,DC=local', description: 'Site de Paris' },
+    { distinguishedname: 'OU=Groupes,OU=Paris,DC=lab,DC=local', description: 'Groupes de sécurité' },
+    { distinguishedname: 'OU=Lyon,DC=lab,DC=local', description: 'Site de Lyon (créée à la main)' },
+    { distinguishedname: 'OU=Domain Controllers,DC=lab,DC=local', description: 'Default container for domain controllers' },
+  ],
+  users: [
+    { distinguishedname: 'CN=Administrateur,CN=Users,DC=lab,DC=local', samaccountname: 'Administrateur', displayname: null },
+    { distinguishedname: 'CN=Jean Dupont,OU=Utilisateurs,OU=Paris,DC=lab,DC=local', samaccountname: 'jdupont', displayname: 'Jean Dupont', givenname: 'Jean', sn: 'Dupont' },
+    { distinguishedname: 'CN=Élodie Petit,OU=Lyon,DC=lab,DC=local', samaccountname: 'epetit', displayname: 'Élodie Petit', givenname: 'Élodie', sn: 'Petit' },
+  ],
+  groups: [
+    { distinguishedname: 'CN=GG_Compta,OU=Groupes,OU=Paris,DC=lab,DC=local', samaccountname: 'GG_Compta', grouptype: '-2147483646', description: 'Service comptabilité', member: 'CN=Jean Dupont,OU=Utilisateurs,OU=Paris,DC=lab,DC=local' },
+    { distinguishedname: 'CN=GG_Lyon,OU=Lyon,DC=lab,DC=local', samaccountname: 'GG_Lyon', grouptype: '-2147483646', description: 'Équipe de Lyon', member: ['CN=Élodie Petit,OU=Lyon,DC=lab,DC=local'] },
+    { distinguishedname: 'CN=DL_Lyon_RW,OU=Lyon,DC=lab,DC=local', samaccountname: 'DL_Lyon_RW', grouptype: '-2147483644', description: null, member: 'CN=GG_Lyon,OU=Lyon,DC=lab,DC=local' },
+    { distinguishedname: 'CN=Admins du domaine,CN=Users,DC=lab,DC=local', samaccountname: 'Admins du domaine', grouptype: '-2147483646', member: 'CN=Administrateur,CN=Users,DC=lab,DC=local' },
+  ],
+};
+
+/** Lit l'annuaire (OU, comptes, groupes) du domaine du poste : lecture seule. */
+async function readDirectory() {
+  if (FAKE_RUN) {
+    await new Promise((r) => setTimeout(r, 400));
+    return { ok: true, directory: Agdlp.directoryFromAdsi(FAKE_DIRECTORY, Date.now()), fake: true };
+  }
+  if (!IS_WIN) return { ok: false, error: "La lecture de l'annuaire n'est possible que sous Windows, sur un poste joint au domaine." };
+  return Runner.readDirectory();
+}
+
+/**
  * Lanceur fictif pour le mode de test (développement uniquement, AGEPEDE_FAKE_RUN=1 hors application installée).
  * Il est injecté dans Runner.runSteps (option `run`) : le vrai enchaînement (tests d'existence, dépendances,
  * annulation, classement des résultats) est utilisé, mais AUCUNE commande n'est lancée.
@@ -596,6 +631,7 @@ let forceClose = false;
 
 function registerIpc() {
   handle('env:detect', () => detectEnv());
+  handle('ad:read', () => readDirectory());
   handle('project:open', () => openProject());
   handle('project:save', (req) => saveProject(req || {}));
   handle('csv:import', (table) => importCsv(String(table || '')));

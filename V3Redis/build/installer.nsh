@@ -13,6 +13,8 @@
   Var v3Chk_agepede
   Var v3App_cours
   Var v3Chk_cours
+  Var v3App_fichinter
+  Var v3Chk_fichinter
 !endif
 
 ; --- Demarrage de l'installeur : choix precedent (registre), sinon toutes les applications ---
@@ -47,6 +49,12 @@
   ${Else}
     StrCpy $v3App_cours "1"
   ${EndIf}
+  ReadRegStr $0 HKCU "Software\V3Redis\Applications" "fichinter"
+  ${If} $0 == "0"
+    StrCpy $v3App_fichinter "0"
+  ${Else}
+    StrCpy $v3App_fichinter "1"
+  ${EndIf}
 !macroend
 
 ; --- Installation : interface, page d'accueil ---
@@ -60,7 +68,7 @@
   !define MUI_FINISHPAGE_TITLE_3LINES
   !define MUI_CUSTOMFUNCTION_GUIINIT v3GuiInit
   !define MUI_WELCOMEPAGE_TITLE "Bienvenue dans l'installation de V3Redis"
-  !define MUI_WELCOMEPAGE_TEXT "Cet assistant va installer V3Redis ${VERSION} et les applications de votre choix : SysInfo Lite, CalkIP, PredF, Agépédé et Cours.$\r$\n$\r$\nFermez les applications V3Redis ouvertes avant de continuer.$\r$\n$\r$\nCliquez sur Suivant pour continuer."
+  !define MUI_WELCOMEPAGE_TEXT "Cet assistant va installer V3Redis ${VERSION} et les applications de votre choix : SysInfo Lite, CalkIP, PredF, Agépédé, Cours et FichInter.$\r$\n$\r$\nFermez les applications V3Redis ouvertes avant de continuer.$\r$\n$\r$\nCliquez sur Suivant pour continuer."
   ; Bouton poussoir au theme sombre de Windows (registre attendu : $R1)
   Function v3DarkButton
     System::Call 'uxtheme::#133(p R1, i 1)'
@@ -241,27 +249,32 @@ Var pid
     ${If} $v3App_sysinfo == "1"
       ${NSD_Check} $v3Chk_sysinfo
     ${EndIf}
-    ${NSD_CreateCheckbox} 4u 48u 100% 13u "CalkIP  —  Vos réseaux IP, calculés en local (368 Mo)"
+    ${NSD_CreateCheckbox} 4u 47u 100% 13u "CalkIP  —  Vos réseaux IP, calculés en local (368 Mo)"
     Pop $v3Chk_calkip
     ${If} $v3App_calkip == "1"
       ${NSD_Check} $v3Chk_calkip
     ${EndIf}
-    ${NSD_CreateCheckbox} 4u 64u 100% 13u "PredF  —  Vos PDF convertis et fusionnés (426 Mo)"
+    ${NSD_CreateCheckbox} 4u 62u 100% 13u "PredF  —  Vos PDF convertis et fusionnés (426 Mo)"
     Pop $v3Chk_predf
     ${If} $v3App_predf == "1"
       ${NSD_Check} $v3Chk_predf
     ${EndIf}
-    ${NSD_CreateCheckbox} 4u 80u 100% 13u "Agépédé  —  Votre Active Directory, en AGDLP (372 Mo)"
+    ${NSD_CreateCheckbox} 4u 77u 100% 13u "Agépédé  —  Votre Active Directory, en AGDLP (372 Mo)"
     Pop $v3Chk_agepede
     ${If} $v3App_agepede == "1"
       ${NSD_Check} $v3Chk_agepede
     ${EndIf}
-    ${NSD_CreateCheckbox} 4u 96u 100% 13u "Cours  —  Les résumés de la formation (498 Mo)"
+    ${NSD_CreateCheckbox} 4u 92u 100% 13u "Cours  —  Les résumés de la formation (498 Mo)"
     Pop $v3Chk_cours
     ${If} $v3App_cours == "1"
       ${NSD_Check} $v3Chk_cours
     ${EndIf}
-    ${NSD_CreateLabel} 0 116u 100% 12u "V3Redis lui-même est toujours installé."
+    ${NSD_CreateCheckbox} 4u 107u 100% 13u "FichInter  —  Vos fiches d'intervention (370 Mo)"
+    Pop $v3Chk_fichinter
+    ${If} $v3App_fichinter == "1"
+      ${NSD_Check} $v3Chk_fichinter
+    ${EndIf}
+    ${NSD_CreateLabel} 0 126u 100% 12u "V3Redis lui-même est toujours installé."
     Pop $0
     Call v3InnerShow
     nsDialogs::Show
@@ -297,6 +310,12 @@ Var pid
       StrCpy $v3App_cours "1"
     ${Else}
       StrCpy $v3App_cours "0"
+    ${EndIf}
+    ${NSD_GetState} $v3Chk_fichinter $0
+    ${If} $0 == ${BST_CHECKED}
+      StrCpy $v3App_fichinter "1"
+    ${Else}
+      StrCpy $v3App_fichinter "0"
     ${EndIf}
   FunctionEnd
   Page custom v3AppsPage v3AppsLeave
@@ -345,7 +364,7 @@ Var pid
   !define MUI_FINISHPAGE_TITLE_3LINES
   !define MUI_CUSTOMFUNCTION_UNGUIINIT un.v3GuiInit
   !define MUI_WELCOMEPAGE_TITLE "Désinstallation de V3Redis"
-  !define MUI_WELCOMEPAGE_TEXT "V3Redis et ses applications (SysInfo Lite, CalkIP, PredF, Agépédé et Cours) vont être supprimés de cet ordinateur.$\r$\n$\r$\nVos réglages sont conservés.$\r$\n$\r$\nCliquez sur Suivant pour continuer."
+  !define MUI_WELCOMEPAGE_TEXT "V3Redis et ses applications (SysInfo Lite, CalkIP, PredF, Agépédé, Cours et FichInter) vont être supprimés de cet ordinateur.$\r$\n$\r$\nVos réglages sont conservés.$\r$\n$\r$\nCliquez sur Suivant pour continuer."
   ; Bouton poussoir au theme sombre de Windows (registre attendu : $R1)
   Function un.v3DarkButton
     System::Call 'uxtheme::#133(p R1, i 1)'
@@ -532,6 +551,14 @@ Var pid
     CreateShortCut "$SMPROGRAMS\V3Redis\Cours.lnk" "$INSTDIR\resources\apps\cours\Cours.exe"
     WriteRegStr HKCU "Software\V3Redis\Applications" "cours" "1"
   ${EndIf}
+  ${If} $v3App_fichinter == "0"
+    RMDir /r "$INSTDIR\resources\apps\fichinter"
+    Delete "$SMPROGRAMS\V3Redis\FichInter.lnk"
+    WriteRegStr HKCU "Software\V3Redis\Applications" "fichinter" "0"
+  ${Else}
+    CreateShortCut "$SMPROGRAMS\V3Redis\FichInter.lnk" "$INSTDIR\resources\apps\fichinter\FichInter.exe"
+    WriteRegStr HKCU "Software\V3Redis\Applications" "fichinter" "1"
+  ${EndIf}
   ; V3Redis Light : meme programme, fenetre classique sans effets (PC peu puissants)
   CreateShortCut "$SMPROGRAMS\V3Redis\V3Redis Light.lnk" "$INSTDIR\V3Redis.exe" "--light" "$INSTDIR\V3Redis.exe" 0
 !macroend
@@ -542,6 +569,7 @@ Var pid
   Delete "$SMPROGRAMS\V3Redis\PredF.lnk"
   Delete "$SMPROGRAMS\V3Redis\Agépédé.lnk"
   Delete "$SMPROGRAMS\V3Redis\Cours.lnk"
+  Delete "$SMPROGRAMS\V3Redis\FichInter.lnk"
   Delete "$SMPROGRAMS\V3Redis\V3Redis Light.lnk"
   RMDir "$SMPROGRAMS\V3Redis"
   ; vraie desinstallation (pas une mise a jour) : le choix des applications est oublie

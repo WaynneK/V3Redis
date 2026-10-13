@@ -22,6 +22,13 @@
 
   const cssEscape = (s) => (window.CSS && CSS.escape ? CSS.escape(String(s)) : String(s).replace(/["\\]/g, '\\$&'));
 
+  /** Numéro d'une ligne (sans effacer la pastille « AD » de la cellule). */
+  const setNum = (td, text) => {
+    const badge = td.querySelector('.ad-badge');
+    td.textContent = text;
+    if (badge) td.appendChild(badge);
+  };
+
   class Grid {
     /**
      * opts : {
@@ -101,6 +108,14 @@
       this.tbody.addEventListener('focusin', (e) => this.onFocusIn(e));
       this.tbody.addEventListener('focusout', (e) => this.onFocusOut(e));
       this.tbody.addEventListener('click', (e) => {
+        const action = e.target.closest('.cell-action');
+        if (action) {
+          const col = this.columns.find((c) => c.key === action.dataset.action);
+          const tr = action.closest('tr');
+          const row = tr && tr.dataset.rowId ? this.rowById(tr.dataset.rowId) : null;
+          if (col && row && col.onClick) col.onClick(row);
+          return;
+        }
         const toggle = e.target.closest('.cell-toggle');
         if (toggle) return this.onToggle(toggle);
         const btn = e.target.closest('.row-del');
@@ -115,6 +130,17 @@
       const td = document.createElement('td');
       td.dataset.field = col.key;
       let input;
+      if (col.type === 'action') {
+        // Bouton d'action (ex. casser l'héritage du dossier d'une permission) : rien n'est stocké dans la ligne,
+        // col.render(row) → { label, title, state, disabled } et col.onClick(row) agissent ailleurs
+        input = document.createElement('button');
+        input.type = 'button';
+        input.className = 'cell cell-action';
+        input.dataset.action = col.key;
+        this.paintAction(input, col, row);
+        td.appendChild(input);
+        return td;
+      }
       if (col.type === 'toggle') {
         // Bouton à deux états (ex. héritage conservé / cassé) : un clic ou Espace bascule la valeur
         input = document.createElement('button');
@@ -151,6 +177,30 @@
       if (col.type !== 'toggle') input.setAttribute('aria-label', col.label);
       td.appendChild(input);
       return td;
+    }
+
+    /** État d'un bouton d'action (ligne vide du bas : désactivé). */
+    paintAction(btn, col, row) {
+      const st = (row && col.render ? col.render(row) : null) || { label: col.emptyLabel || '—', title: '', disabled: true };
+      btn.textContent = st.label;
+      btn.title = st.title || '';
+      btn.dataset.state = st.state || '';
+      btn.disabled = Boolean(st.disabled);
+      btn.setAttribute('aria-label', `${col.label} : ${st.label}`);
+      if (st.pressed !== undefined) btn.setAttribute('aria-pressed', String(Boolean(st.pressed)));
+    }
+
+    /** Recalcule les boutons d'action (leur état dépend d'autres tableaux). */
+    refreshActions() {
+      const cols = this.columns.filter((c) => c.type === 'action');
+      if (!cols.length) return;
+      for (const tr of this.tbody.children) {
+        const row = tr.dataset.rowId ? this.rowById(tr.dataset.rowId) : null;
+        for (const col of cols) {
+          const btn = tr.querySelector(`button[data-action="${cssEscape(col.key)}"]`);
+          if (btn) this.paintAction(btn, col, row);
+        }
+      }
     }
 
     /** Valeur d'un bouton bascule : col.states = [{ value, label, title, cls }], le premier par défaut. */
@@ -207,7 +257,7 @@
       tr.classList.remove('ghost');
       tr.dataset.rowId = row.id;
       const num = tr.firstChild;
-      num.textContent = String(index + 1);
+      setNum(num, String(index + 1));
       num.title = '';
       const act = tr.lastChild;
       if (!act.firstChild) {
@@ -242,6 +292,33 @@
         if (input) input.focus();
       }
       if (this.lastIssues) this.applyIssues(this.lastIssues);
+      this.paintMarks();
+    }
+
+    /**
+     * Lignes déjà présentes dans l'Active Directory : marks = { [id de ligne]: info-bulle } (pastille sur le
+     * numéro de la ligne). Reprises à chaque rendu.
+     */
+    setMarks(marks) {
+      this.marks = marks || {};
+      this.paintMarks();
+    }
+
+    paintMarks() {
+      const marks = this.marks || {};
+      for (const b of this.tbody.querySelectorAll('.ad-badge')) b.remove();
+      for (const tr of this.tbody.querySelectorAll('tr.in-ad')) tr.classList.remove('in-ad');
+      for (const [id, title] of Object.entries(marks)) {
+        const tr = this.trOf(id);
+        if (!tr) continue;
+        const b = document.createElement('span');
+        b.className = 'ad-badge';
+        b.title = title;
+        b.setAttribute('aria-label', title);
+        b.textContent = 'AD';
+        tr.firstChild.appendChild(b);
+        tr.classList.add('in-ad');
+      }
     }
 
     updateFoot() {
@@ -259,7 +336,7 @@
       let i = 0;
       for (const tr of this.tbody.children) {
         if (tr.classList.contains('ghost')) continue;
-        tr.firstChild.textContent = String(++i);
+        setNum(tr.firstChild, String(++i));
       }
       this.updateFoot();
     }
@@ -276,7 +353,7 @@
       for (const input of tr.querySelectorAll('[data-field]')) {
         if (input.tagName === 'TD') continue;
         const col = this.columns.find((c) => c.key === input.dataset.field);
-        if (col) row[col.key] = input.value;
+        if (col && col.type !== 'action') row[col.key] = input.value;
       }
       this.rows().push(row);
       this.setRealRow(tr, row, this.rows().length - 1);
@@ -327,7 +404,7 @@
     }
 
     isBlank(row) {
-      return this.columns.every((c) => c.type === 'select' || c.type === 'toggle' || String(row[c.key] == null ? '' : row[c.key]).trim() === '');
+      return this.columns.every((c) => c.type === 'select' || c.type === 'toggle' || c.type === 'action' || String(row[c.key] == null ? '' : row[c.key]).trim() === '');
     }
 
     /**
@@ -472,7 +549,7 @@
         }
         matrix[r].forEach((value, c) => {
           const col = this.columns[col0 + c];
-          if (col) row[col.key] = this.coerce(col, value);
+          if (col && col.type !== 'action') row[col.key] = this.coerce(col, value);
         });
       }
       const focusId = rows[start] && rows[start].id;

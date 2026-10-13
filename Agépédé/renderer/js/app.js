@@ -26,6 +26,7 @@
     'opt-default-password': ['defaultPassword', 'text'],
     'opt-must-change': ['mustChangePassword', 'check'],
     'opt-strip-users': ['stripUsers', 'check'],
+    'opt-strip-users-perm': ['stripUsers', 'check'], // même option, reprise dans l'onglet Permissions
   };
 
   // ------------------------------------------------------------------ utilitaires
@@ -130,6 +131,10 @@
     run: { active: false, dryRun: false, steps: [], results: [], summary: null, error: null, startedAt: null, endedAt: null, fake: false, open: new Set() },
     alwaysAdmin: false, // option « Toujours démarrer en administrateur »
     elevating: false,
+    ad: null, // annuaire lu (OU, comptes, groupes déjà présents) : { base, at, ous, users, groups }
+    adReading: false,
+    adError: '',
+    adFake: false,
   };
 
   const grids = {};
@@ -178,8 +183,8 @@
       { key: 'members', label: 'Membres (GG)', list: 'dl-gg-names', multi: true, placeholder: 'GG_Compta, GG_Direction', aliases: ['Membres', 'Groupes globaux'] },
     ],
     permissions: [
-      { key: 'path', label: 'Dossier', list: 'dl-folder-paths', placeholder: 'D:\\Partages\\Compta', width: '46%', aliases: ['Chemin', 'Dossier partagé'] },
-      { key: 'group', label: 'Groupe DL', list: 'dl-dl-names', placeholder: 'DL_Compta_RW', width: '30%', aliases: ['Groupe'] },
+      { key: 'path', label: 'Dossier', list: 'dl-folder-paths', placeholder: 'D:\\Partages\\Compta', width: '36%', aliases: ['Chemin', 'Dossier partagé'] },
+      { key: 'group', label: 'Groupe DL', list: 'dl-dl-names', placeholder: 'DL_Compta_RW', width: '24%', aliases: ['Groupe'] },
       {
         key: 'right',
         label: 'Droit',
@@ -188,6 +193,17 @@
         defaultValue: 'R',
         coerce: coerceRight,
         aliases: ['Droits', 'Permission', 'Accès'],
+        width: '18%',
+      },
+      {
+        // Bouton : casse l'héritage du dossier partagé (ligne de l'onglet Dossiers), pour n'y laisser que les DL
+        key: 'inherit',
+        label: 'Héritage du dossier',
+        type: 'action',
+        emptyLabel: '✂ Casser l\'héritage',
+        help: 'Casser l\'héritage du dossier partagé : il ne reprend plus les droits de son parent, seuls les DL (et les administrateurs) y ont accès.',
+        render: (row) => inheritButton(row),
+        onClick: (row) => toggleInheritance(row),
       },
     ],
   };
@@ -417,10 +433,25 @@
     }
   }
 
+  /** Noms du tableau, complétés par ceux de l'annuaire lu (même domaine que le projet), sans doublon. */
+  function withAd(list, adNames) {
+    const seen = new Set(list.map((n) => n.toLowerCase()));
+    const out = list.slice();
+    for (const n of adNames) {
+      if (n && !seen.has(n.toLowerCase())) {
+        seen.add(n.toLowerCase());
+        out.push(n);
+      }
+    }
+    return out.sort((a, b) => a.localeCompare(b, 'fr'));
+  }
+
+  const adNames = (table) => (adIndex() ? adItems(table).map((it) => (table === 'ous' ? it.path : table === 'users' ? it.login : it.name)) : []);
+
   function refreshLists() {
-    fillDatalist('dl-ou-paths', ouPaths());
-    fillDatalist('dl-gg-names', names('globals'));
-    fillDatalist('dl-dl-names', names('locals'));
+    fillDatalist('dl-ou-paths', withAd(ouPaths(), adNames('ous')));
+    fillDatalist('dl-gg-names', withAd(names('globals'), adNames('globals')));
+    fillDatalist('dl-dl-names', withAd(names('locals'), adNames('locals')));
     fillDatalist('dl-folder-paths', names('folders', 'path'));
   }
 
@@ -437,7 +468,7 @@
     const eff = effectiveProject();
     let res;
     try {
-      res = A.validateProject(eff) || {};
+      res = A.validateProject(eff, { directory: state.ad }) || {};
     } catch (err) {
       res = { errors: [{ table: 'project', message: `Vérification impossible : ${err.message}` }], warnings: [] };
     }
@@ -463,6 +494,10 @@
 
     const tagged = [...state.issues.errors.map((i) => ({ ...i, level: 'error' })), ...state.issues.warnings.map((i) => ({ ...i, level: 'warning' }))];
     for (const t of TABLES) grids[t].applyIssues(tagged.filter((i) => i.table === t));
+    markRows();
+    if (state.ad) for (const t of AD_TABLES) renderAdPanel(t); // « dans le tableau » / « Ajouter au tableau » à jour
+    grids.permissions.refreshActions(); // boutons « Casser l'héritage » (dépendent de l'onglet Dossiers)
+    renderInheritNote();
     // Projet vierge : pas de rouge sur le domaine avant que l'utilisateur ait commencé
     state.pristine = !TABLES.some((t) => eff[t].length) && !str(eff.domain.dns) && !str(eff.domain.dn);
     applyDomainIssues(state.pristine ? [] : tagged.filter((i) => !TABLES.includes(i.table) && ['dns', 'dn', 'netbios'].includes(i.field)));
@@ -695,6 +730,7 @@
     } else {
       chip('Poste hors domaine', env.isWindows ? 'warn' : '', 'Simulation et exécution nécessitent un poste joint au domaine.');
     }
+    adChip(chip);
   }
 
   function setDomain(domain, markDirty) {
@@ -784,9 +820,232 @@
     }
     renderEnv();
     updateRunControls();
+    // Poste joint au domaine : l'annuaire est lu tout de suite (puis à la demande : « Rafraîchir l'AD », F5)
+    if (env && (env.fake || (env.isWindows && env.joined))) readDirectory(false);
+    else renderAdState();
   }
 
   const hasContent = () => TABLES.some((t) => (state.project[t] || []).some((r) => !isBlankRow(t, r))) || Boolean(state.filePath);
+
+  // ------------------------------------------------------------------ annuaire (bouton « Rafraîchir l'AD »)
+  // OU, comptes et groupes déjà présents dans l'Active Directory, créés par Agépédé ou à la main : affichés sous
+  // les tableaux, marqués « AD » dans les lignes du projet, proposés en suggestion et utilisés par la vérification.
+
+  const AD_TABLES = ['ous', 'users', 'globals', 'locals'];
+
+  /** Index de l'annuaire lu, s'il concerne bien le domaine du projet (sinon null). */
+  const adIndex = () => (state.ad ? A.directoryIndex(state.ad, state.project.domain) : null);
+  const adTime = () => (state.ad ? new Date(state.ad.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '');
+  const adSummary = (d) => `${plural(d.ous.length, 'OU', 'OU')} · ${plural(d.users.length, 'utilisateur', 'utilisateurs')} · ${plural(d.groups.length, 'groupe', 'groupes')}`;
+
+  /** Objets de l'annuaire montrés sous un tableau (les objets système hors OU et hors Users, comme Builtin, sont omis). */
+  function adItems(table) {
+    const d = state.ad;
+    if (!d) return [];
+    if (table === 'ous') return d.ous;
+    if (table === 'users') return d.users.filter((u) => u.ou !== null);
+    const scope = table === 'globals' ? 'global' : 'local';
+    return d.groups.filter((g) => g.scope === scope && g.ou !== null);
+  }
+
+  /** Clé d'une ligne du projet, comparable à celle de l'objet de l'annuaire correspondant. */
+  function rowKey(table, row) {
+    if (table === 'ous') return A.nameKey(A.ouFullPath(row));
+    if (table === 'users') return A.nameKey(row.login);
+    return A.nameKey(row.name);
+  }
+  const itemKey = (table, item) => A.nameKey(table === 'ous' ? item.path : table === 'users' ? item.login : item.name);
+
+  async function readDirectory(manual) {
+    if (!api || !api.readDirectory || state.adReading) return;
+    state.adReading = true;
+    renderAdState();
+    let res;
+    try {
+      res = await api.readDirectory();
+    } catch (err) {
+      res = { ok: false, error: err.message };
+    }
+    state.adReading = false;
+    if (res && res.ok && res.directory) {
+      const before = state.ad ? new Set([...state.ad.ous, ...state.ad.users, ...state.ad.groups].map((o) => o.dn.toLowerCase())) : null;
+      state.ad = res.directory;
+      state.adFake = Boolean(res.fake);
+      state.adError = '';
+      if (manual) {
+        const all = [...state.ad.ous, ...state.ad.users, ...state.ad.groups];
+        const added = before ? all.filter((o) => !before.has(o.dn.toLowerCase())).length : 0;
+        toast(`Active Directory relu : ${adSummary(state.ad)}${added ? ` — ${plural(added, 'nouvel objet', 'nouveaux objets')} depuis la dernière lecture` : ''}.`, 'ok');
+      }
+    } else {
+      state.adError = (res && res.error) || "Lecture de l'annuaire impossible.";
+      if (manual) toast(state.adError, 'error');
+    }
+    renderAdState();
+    validate(); // pastilles « AD » et avertissements à jour
+    refreshLists();
+  }
+
+  /** Bouton, pastille de la barre du domaine et panneaux sous les tableaux. */
+  function renderAdState() {
+    const b = $('btn-refresh-ad');
+    const env = state.env;
+    const unsupported = !api || !api.readDirectory || (env && !env.isWindows && !env.fake);
+    b.disabled = state.adReading || unsupported;
+    b.classList.toggle('spinning', state.adReading);
+    b.title = unsupported
+      ? "Lecture de l'Active Directory : sous Windows, sur un poste joint au domaine."
+      : "Relire l'Active Directory (F5) : OU, utilisateurs et groupes déjà présents, y compris ceux créés à la main";
+    renderEnv();
+    for (const t of AD_TABLES) renderAdPanel(t);
+  }
+
+  /** Pastille « Annuaire » (ajoutée par renderEnv à la barre du domaine). */
+  function adChip(chip) {
+    if (state.adReading) return chip("Annuaire : lecture…", '', "Lecture de l'Active Directory en cours.");
+    if (state.ad) {
+      const idx = adIndex();
+      const c = chip(`Annuaire : ${adSummary(state.ad)} — lu à ${adTime()}`, idx ? 'ok' : 'warn', idx ? 'Objets déjà présents dans l\'Active Directory : ils sont affichés sous chaque tableau. F5 pour relire.' : `L'annuaire lu (${A.dnToDomain(state.ad.base)}) n'est pas le domaine du projet : il n'est pas utilisé pour la vérification.`);
+      return c;
+    }
+    if (state.adError) return chip('Annuaire : non lu', 'warn', state.adError);
+    return null;
+  }
+
+  const adFilters = {}; // texte de recherche de chaque panneau
+
+  function renderAdPanel(table) {
+    const panel = $(`ad-${table}`);
+    if (!panel) return;
+    panel.textContent = '';
+    const d = state.ad;
+    const head = el('div', 'ad-head');
+    const title = el('h3', null, "Déjà dans l'Active Directory");
+    head.appendChild(title);
+    panel.appendChild(head);
+    if (!d) {
+      const msg = state.adReading ? "Lecture de l'Active Directory…" : state.adError ? `${state.adError}` : "Les objets déjà présents dans l'Active Directory (créés avec Agépédé ou à la main) s'affichent ici : bouton « ↻ Rafraîchir l'AD » (F5).";
+      panel.appendChild(el('p', `ad-note${state.adError ? ' bad' : ''}`, msg));
+      panel.classList.add('empty');
+      return;
+    }
+    panel.classList.remove('empty');
+    const idx = adIndex();
+    const items = adItems(table);
+    const inTable = new Set((state.project[table] || []).filter((r) => !isBlankRow(table, r)).map((r) => rowKey(table, r)));
+    title.appendChild(el('span', 'count', String(items.length)));
+    head.appendChild(el('span', 'ad-meta', `lu à ${adTime()}${state.adFake ? ' (MODE TEST)' : ''}`));
+    const search = el('input', 'ad-search');
+    search.type = 'search';
+    search.placeholder = 'Rechercher…';
+    search.value = adFilters[table] || '';
+    search.setAttribute('aria-label', "Rechercher dans l'Active Directory");
+    head.appendChild(search);
+    if (!idx) {
+      panel.appendChild(el('p', 'ad-note bad', `L'annuaire lu est celui du domaine ${A.dnToDomain(d.base)}, pas celui du projet (${str(state.project.domain.dns) || 'non renseigné'}) : il n'est pas utilisé pour la vérification.`));
+    }
+    const list = el('div', 'ad-list');
+    panel.appendChild(list);
+    const fill = () => {
+      const q = norm(adFilters[table] || '');
+      const shown = items.filter((it) => !q || norm(adCells(table, it).join(' ')).includes(q));
+      list.textContent = '';
+      if (!items.length) {
+        list.appendChild(el('p', 'ad-note', table === 'ous' ? 'Aucune OU dans l\'annuaire.' : table === 'users' ? 'Aucun compte utilisateur.' : table === 'globals' ? 'Aucun groupe global.' : 'Aucun groupe domaine local.'));
+        return;
+      }
+      if (!shown.length) {
+        list.appendChild(el('p', 'ad-note', 'Aucun résultat.'));
+        return;
+      }
+      const tbl = el('table', 'ad-table');
+      const thead = el('thead');
+      const trh = el('tr');
+      for (const h of AD_HEADERS[table]) trh.appendChild(el('th', null, h));
+      trh.appendChild(el('th', 'ad-act'));
+      thead.appendChild(trh);
+      tbl.appendChild(thead);
+      const tbody = el('tbody');
+      for (const it of shown.slice(0, 300)) {
+        const tr = el('tr');
+        for (const c of adCells(table, it)) {
+          const td = el('td', null, c);
+          td.title = c;
+          tr.appendChild(td);
+        }
+        const act = el('td', 'ad-act');
+        if (inTable.has(itemKey(table, it))) act.appendChild(el('span', 'ad-tag', 'dans le tableau'));
+        else if (table !== 'users' && idx) {
+          const add = el('button', 'link-btn', 'Ajouter au tableau');
+          add.type = 'button';
+          add.title = table === 'ous' ? "Reprend cette OU dans le tableau (elle ne sera pas recréée) : utile pour y ranger de nouveaux objets." : "Reprend ce groupe dans le tableau (il ne sera pas recréé) : ajoutez-lui des membres dans la colonne Membres.";
+          add.addEventListener('click', () => addFromAd(table, it));
+          act.appendChild(add);
+        }
+        tr.appendChild(act);
+        tbody.appendChild(tr);
+      }
+      tbl.appendChild(tbody);
+      list.appendChild(tbl);
+      if (shown.length > 300) list.appendChild(el('p', 'ad-note', `… et ${shown.length - 300} autres : affinez la recherche.`));
+    };
+    search.addEventListener('input', () => {
+      adFilters[table] = search.value;
+      fill();
+    });
+    fill();
+  }
+
+  const AD_HEADERS = {
+    ous: ['OU', 'Description'],
+    users: ['Identifiant', 'Nom affiché', 'Emplacement'],
+    globals: ['Groupe global', 'Emplacement', 'Membres'],
+    locals: ['Groupe domaine local', 'Emplacement', 'Membres'],
+  };
+
+  function adCells(table, it) {
+    if (table === 'ous') return [it.path, it.description || ''];
+    if (table === 'users') return [it.login, it.display || '', it.where || ''];
+    return [it.name, it.where || '', (it.members || []).join(', ')];
+  }
+
+  /** Reprend une OU ou un groupe de l'annuaire dans le tableau (ligne « déjà existante », complétée ensuite). */
+  function addFromAd(table, it) {
+    const row = newRow(table);
+    if (table === 'ous') {
+      const segs = it.path.split('/');
+      row.name = segs.pop();
+      row.parent = segs.join('/');
+      row.description = it.description || '';
+    } else {
+      row.name = it.name;
+      row.ou = it.ou || '';
+      row.description = it.description || '';
+      row.members = (it.members || []).join(', ');
+    }
+    state.project[table].push(row);
+    grids[table].render();
+    changed();
+    renderAdPanel(table);
+    toast(`« ${table === 'ous' ? it.path : it.name} » ajouté au tableau : il existe déjà, il ne sera pas recréé${table === 'ous' ? '' : ' (seuls les nouveaux membres seront ajoutés)'}.`, 'ok');
+  }
+
+  /** Pastille « AD » sur les lignes du projet qui existent déjà dans l'annuaire. */
+  function markRows() {
+    const idx = adIndex();
+    for (const t of AD_TABLES) {
+      const marks = {};
+      if (idx) {
+        const map = t === 'ous' ? idx.ous : t === 'users' ? idx.users : idx.groups;
+        for (const row of state.project[t] || []) {
+          if (isBlankRow(t, row)) continue;
+          const found = map.get(rowKey(t, row));
+          if (found) marks[row.id] = `Existe déjà dans l'Active Directory (lu à ${adTime()}) : ${t === 'ous' ? 'l\'OU' : t === 'users' ? 'le compte' : 'le groupe'} ne sera pas recréé${t === 'globals' || t === 'locals' ? ', seuls les nouveaux membres seront ajoutés' : ''}.`;
+        }
+      }
+      grids[t].setMarks(marks);
+    }
+  }
 
   // ------------------------------------------------------------------ domaine (barre du haut)
 
@@ -889,6 +1148,7 @@
     for (const [id, [key, type]] of Object.entries(OPTION_INPUTS)) {
       $(id).addEventListener(type === 'check' ? 'change' : 'input', (e) => {
         state.project.options[key] = type === 'check' ? e.target.checked : e.target.value;
+        if (type === 'check') fillOptionInputs(); // cases liées à la même option (Dossiers / Permissions)
         changed();
       });
     }
@@ -909,6 +1169,102 @@
         toast(n ? `${msg} ${plural(n, 'dossier', 'dossiers')}.` : 'Aucun changement.', n ? 'ok' : 'info');
       });
     }
+    $('btn-break-perms').addEventListener('click', breakAllPermissionFolders);
+  }
+
+  // ------------------------------------------------------------------ héritage du dossier partagé (onglet Permissions)
+  // Casser l'héritage d'un dossier partagé pour y mettre les DL : l'état est celui de la ligne du dossier dans l'onglet
+  // Dossiers (ajoutée au besoin). Le script casse l'héritage AVANT de donner les droits aux DL.
+
+  /** Ligne de l'onglet Dossiers pour un chemin (casse et barre finale ignorées), ou null. */
+  function folderRowFor(path) {
+    const key = A.pathKey(path);
+    return (state.project.folders || []).find((r) => !isBlankRow('folders', r) && A.pathKey(r.path) === key) || null;
+  }
+
+  const validPath = (path) => Boolean(str(path).trim()) && !A.validateName('path', path);
+
+  /** État du bouton « Casser l'héritage » d'une ligne de permission. */
+  function inheritButton(row) {
+    if (!validPath(row.path)) return { label: '✂ Casser l\'héritage', title: 'Saisissez d\'abord un chemin de dossier valide.', disabled: true, state: 'keep' };
+    const folder = folderRowFor(row.path);
+    const strip = state.project.options.stripUsers;
+    if (folder && folder.inheritance === 'break') {
+      return {
+        label: '✂ Héritage cassé',
+        state: 'break',
+        pressed: true,
+        title: `L'héritage de « ${A.cleanPath(row.path)} » sera cassé avant de donner les droits aux DL${strip ? ' ; « Utilisateurs » et « Utilisateurs authentifiés » seront retirés : seuls les administrateurs et les DL y auront accès' : ''}. Cliquez pour conserver l'héritage.`,
+      };
+    }
+    return {
+      label: '✂ Casser l\'héritage',
+      state: 'keep',
+      pressed: false,
+      title: `Le dossier hérite des droits de son parent : tout le monde garde l'accès hérité. Cliquez pour casser l'héritage (icacls /inheritance:d${strip ? ', puis retrait d\'« Utilisateurs »' : ''}) avant de donner les droits aux DL.`,
+    };
+  }
+
+  /** Casse (ou rétablit) l'héritage du dossier d'une permission. */
+  function toggleInheritance(row) {
+    if (!validPath(row.path)) return;
+    const path = A.cleanPath(row.path);
+    let folder = folderRowFor(path);
+    const breaking = !folder || folder.inheritance !== 'break';
+    if (!folder) {
+      folder = { ...newRow('folders'), path, inheritance: 'break' };
+      state.project.folders.push(folder);
+    } else folder.inheritance = breaking ? 'break' : 'keep';
+    grids.folders.render();
+    grids.permissions.refreshActions();
+    changed();
+    toast(
+      breaking
+        ? `Héritage cassé sur « ${path} » : les DL de l'onglet Permissions y recevront leurs droits${state.project.options.stripUsers ? ', et seuls eux (et les administrateurs) y auront accès' : ''}. Voir aussi l'onglet Dossiers.`
+        : `Héritage conservé sur « ${path} ».`,
+      'ok'
+    );
+  }
+
+  /** Casse l'héritage de tous les dossiers de l'onglet Permissions. */
+  function breakAllPermissionFolders() {
+    const seen = new Set();
+    let n = 0;
+    for (const r of state.project.permissions || []) {
+      if (isBlankRow('permissions', r) || !validPath(r.path)) continue;
+      const path = A.cleanPath(r.path);
+      const key = A.pathKey(path);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const folder = folderRowFor(path);
+      if (folder && folder.inheritance === 'break') continue;
+      if (folder) folder.inheritance = 'break';
+      else state.project.folders.push({ ...newRow('folders'), path, inheritance: 'break' });
+      n += 1;
+    }
+    if (!seen.size) return toast('Aucun dossier valide dans le tableau des permissions.', 'info');
+    if (!n) return toast('L\'héritage est déjà cassé sur tous ces dossiers.', 'info');
+    grids.folders.render();
+    grids.permissions.refreshActions();
+    changed();
+    toast(`Héritage cassé sur ${plural(n, 'dossier', 'dossiers')} : les DL y recevront leurs droits.`, 'ok');
+  }
+
+  /** Résumé sous les boutons : dossiers des permissions dont l'héritage sera cassé. */
+  function renderInheritNote() {
+    const note = $('perm-inherit-note');
+    if (!note) return;
+    const keys = new Set();
+    let broken = 0;
+    for (const r of state.project.permissions || []) {
+      if (isBlankRow('permissions', r) || !validPath(r.path)) continue;
+      const key = A.pathKey(r.path);
+      if (keys.has(key)) continue;
+      keys.add(key);
+      const f = folderRowFor(r.path);
+      if (f && f.inheritance === 'break') broken += 1;
+    }
+    note.textContent = keys.size ? `Héritage cassé : ${broken} / ${plural(keys.size, 'dossier', 'dossiers')}.` : '';
   }
 
   async function confirmDiscard() {
@@ -1342,6 +1698,8 @@
     if (!res.ok) return toast(res.error || 'Échec du lancement.', 'error');
     const c = tally();
     toast(summaryText(), c.error ? 'error' : 'ok');
+    // Après une vraie exécution, l'annuaire a changé : il est relu (pastilles « AD » et listes à jour)
+    if (!dryRun) readDirectory(false);
   }
 
   function buildLogText() {
@@ -1442,7 +1800,8 @@
               changed();
             },
           }),
-        multiOptions: (col) => (col.key !== 'members' ? [] : t === 'locals' ? names('globals') : t === 'globals' ? names('users', 'login') : []),
+        // Membres proposés : ceux du tableau et ceux déjà dans l'Active Directory (annuaire lu)
+        multiOptions: (col) => (col.key !== 'members' ? [] : t === 'locals' ? withAd(names('globals'), adNames('globals')) : t === 'globals' ? withAd(names('users', 'login'), adNames('users')) : []),
       });
     }
   }
@@ -1505,10 +1864,17 @@
       if (!detail.hidden) fillDetail(detail.firstChild, state.run.steps[i], state.run.results[i] || {});
     });
 
+    $('btn-refresh-ad').addEventListener('click', () => readDirectory(true));
+
     document.addEventListener('keydown', (e) => {
       if (e.key === 'F1') {
         e.preventDefault();
         openHelp();
+        return;
+      }
+      if (e.key === 'F5' && !modalOpen()) {
+        e.preventDefault(); // F5 relit l'annuaire (jamais de rechargement de la page)
+        readDirectory(true);
         return;
       }
       if (!e.ctrlKey || e.altKey || modalOpen()) return;
@@ -1584,6 +1950,7 @@
       }
       if (startup && startup.note) toast(startup.note.text, startup.note.kind === 'error' ? 'error' : 'info');
       showTab('ous');
+      renderAdState();
       if (api) {
         api
           .info()

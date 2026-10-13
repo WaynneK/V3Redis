@@ -14,7 +14,7 @@
 # sans lui, et le paquet Windows n'est pas construit ici (il retirerait SysInfo Lite des PC à la mise à jour) :
 # il se construit sur le PC (npm run build dans V3Redis) et ses fichiers s'ajoutent à la release brouillon :
 # V3Redis-Setup-X.Y.Z.exe, son .blockmap, latest.yml, les 5 paquets V3Redis-X.Y.Z-app-<id>-win-x64.zip
-# (sysinfo, calkip, predf, agepede, cours) et V3Redis-X.Y.Z-apps-win-x64.json (ou « npm run release », qui les envoie).
+# (sysinfo, calkip, predf, agepede, cours, fichinter) et V3Redis-X.Y.Z-apps-win-x64.json (ou « npm run release », qui les envoie).
 name: Release
 
 on:
@@ -86,7 +86,7 @@ jobs:
         if: env.BUILD != 'true'
         run: |
           V="${{ needs.prepare.outputs.version }}"
-          echo "::notice::Paquet Windows non construit ici (SysInfo Lite absent) : construisez-le sur le PC (npm run build dans V3Redis) et ajoutez à la release ces fichiers de dist/ : V3Redis-Setup-$V.exe, V3Redis-Setup-$V.exe.blockmap, latest.yml, V3Redis-$V-app-sysinfo-win-x64.zip, V3Redis-$V-app-calkip-win-x64.zip, V3Redis-$V-app-predf-win-x64.zip, V3Redis-$V-app-agepede-win-x64.zip, V3Redis-$V-app-cours-win-x64.zip et V3Redis-$V-apps-win-x64.json."
+          echo "::notice::Paquet Windows non construit ici (SysInfo Lite absent) : construisez-le sur le PC (npm run build dans V3Redis) et ajoutez à la release ces fichiers de dist/ : V3Redis-Setup-$V.exe, V3Redis-Setup-$V.exe.blockmap, latest.yml, V3Redis-$V-app-sysinfo-win-x64.zip, V3Redis-$V-app-calkip-win-x64.zip, V3Redis-$V-app-predf-win-x64.zip, V3Redis-$V-app-agepede-win-x64.zip, V3Redis-$V-app-cours-win-x64.zip, V3Redis-$V-app-fichinter-win-x64.zip et V3Redis-$V-apps-win-x64.json."
 
       - uses: actions/checkout@v4
         if: env.BUILD == 'true'
@@ -107,7 +107,7 @@ jobs:
       - name: Dépendances
         if: env.BUILD == 'true'
         run: |
-          for dir in CalkIP PredF Agépédé Cours SysInfoLite V3Redis; do
+          for dir in CalkIP PredF Agépédé Cours FichInter SysInfoLite V3Redis; do
             if [ -f "$dir/package.json" ]; then
               echo "::group::npm ci — $dir"
               (cd "$dir" && npm ci --no-audit --no-fund)
@@ -118,7 +118,7 @@ jobs:
       - name: Tests
         if: env.BUILD == 'true' && runner.os == 'Windows'
         run: |
-          for dir in CalkIP PredF Agépédé Cours V3Redis; do
+          for dir in CalkIP PredF Agépédé Cours FichInter V3Redis; do
             (cd "$dir" && npm test)
           done
 

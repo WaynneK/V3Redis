@@ -224,11 +224,14 @@ function appsPage(apps, product, regKey) {
     `    \${NSD_CreateLabel} 0 0 100% 24u ${nsisString(`Décochez celles dont vous n'avez pas besoin. Vous pourrez les installer ou les désinstaller plus tard, à tout moment, depuis ${product}.`)}`,
     '    Pop $0',
   ];
+  // Page intérieure de l'installeur : environ 140u de haut. Écart de 16u entre les cases, resserré au-delà de
+  // 5 applications pour que la dernière ligne reste visible
+  const step = Math.max(12, Math.min(16, Math.floor((140 - 12 - 36) / Math.max(1, apps.length))));
   apps.forEach((a, i) => {
     const size = a.sizeMb ? ` (${a.sizeMb} Mo)` : '';
     const label = `${a.name}${a.tagline ? `  —  ${a.tagline}` : ''}${size}`;
     lines.push(
-      `    \${NSD_CreateCheckbox} 4u ${32 + i * 16}u 100% 13u ${nsisString(label)}`,
+      `    \${NSD_CreateCheckbox} 4u ${32 + i * step}u 100% 13u ${nsisString(label)}`,
       `    Pop $v3Chk_${a.id}`,
       `    \${If} $v3App_${a.id} == "1"`,
       `      \${NSD_Check} $v3Chk_${a.id}`,
@@ -236,7 +239,7 @@ function appsPage(apps, product, regKey) {
     );
   });
   lines.push(
-    `    \${NSD_CreateLabel} 0 ${36 + apps.length * 16}u 100% 12u ${nsisString(`${product} lui-même est toujours installé.`)}`,
+    `    \${NSD_CreateLabel} 0 ${36 + apps.length * step}u 100% 12u ${nsisString(`${product} lui-même est toujours installé.`)}`,
     '    Pop $0',
     '    Call v3InnerShow',
     '    nsDialogs::Show',

@@ -10,6 +10,7 @@ on installe V3Redis, et toutes ses applications avec ; elles se mettent à jour 
 | [`PredF/`](PredF/) | fusion et conversion de PDF, assistant IA (Claude ou IA locale gratuite) |
 | [`Agépédé/`](Agépédé/) | OU, groupes globaux et domaine local Active Directory en AGDLP (exécution sous Windows Server) |
 | [`Cours/`](Cours/) | résumés des cours de la formation : M.Julia (IP, Windows Server, Connexion), A.Julia (hardware), Microsoft Office |
+| [`FichInter/`](FichInter/) | fiches d'intervention : modèle Word au choix, formulaire adapté à ses cases, fiche .docx générée et vérifiée |
 
 SysInfo Lite a son propre dépôt ; il est intégré au paquet quand son projet est présent à côté des autres.
 

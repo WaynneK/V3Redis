@@ -585,6 +585,41 @@ table.grid {
   opacity: 0.45;
 }
 
+/* Bouton « Casser l'héritage » du dossier d'une permission */
+.grid .cell-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--accent-text);
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.grid .cell-action:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.grid .cell-action[data-state='break'] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.grid .cell-action:disabled {
+  color: var(--muted);
+  font-weight: 400;
+  opacity: 0.5;
+  cursor: default;
+}
+
+.grid .cell-action:focus-visible {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
 .grid tr.ghost .cell::placeholder {
   color: var(--muted);
   opacity: 0.55;
@@ -652,6 +687,155 @@ table.grid {
   margin-top: 6px;
   color: var(--muted);
   font-size: 12px;
+}
+
+/* Ligne du projet qui existe déjà dans l'Active Directory (annuaire lu) : pastille « AD » sur le numéro */
+.ad-badge {
+  display: inline-block;
+  margin-left: 3px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--ok);
+  color: var(--surface);
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 13px;
+  vertical-align: 1px;
+  cursor: help;
+}
+
+.grid tr.in-ad td.num {
+  box-shadow: inset 3px 0 0 var(--ok);
+}
+
+/* ------------------------------------------------------------ Annuaire lu (« Rafraîchir l'AD ») */
+
+.btn-refresh .refresh-icon {
+  display: inline-block;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.btn-refresh.spinning .refresh-icon {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ad-panel {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ok);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.ad-panel.empty {
+  border-left-color: var(--border-strong);
+}
+
+.ad-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.ad-head h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13.5px;
+}
+
+.ad-head h3 .count {
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-size: 11.5px;
+}
+
+.ad-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ad-search {
+  width: min(260px, 100%);
+  height: 28px;
+  margin-left: auto;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.ad-search:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.ad-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.ad-note.bad {
+  color: var(--warn);
+}
+
+.ad-list {
+  max-height: 260px;
+  margin-top: 8px;
+  overflow: auto;
+}
+
+table.ad-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12.5px;
+}
+
+.ad-table th {
+  position: sticky;
+  top: 0;
+  padding: 4px 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.ad-table td {
+  overflow: hidden;
+  padding: 4px 8px;
+  border-top: 1px solid var(--border);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ad-table .ad-act {
+  width: 140px;
+  text-align: right;
+}
+
+.ad-tag {
+  color: var(--ok);
+  font-size: 11.5px;
+  font-weight: 600;
 }
 
 /* ------------------------------------------------------------ Script & exécution */

@@ -1,7 +1,8 @@
 /*
  * preload.js — Pont minimal entre la page (isolée, sans Node) et le processus principal.
  * La page édite le projet et construit l'aperçu du script avec lib/agdlp.js ; passent ici uniquement :
- * fichiers (projet, CSV, script, journal), détection de l'environnement, exécution, presse-papiers.
+ * fichiers (projet, CSV, script, journal), détection de l'environnement, lecture de l'annuaire, exécution,
+ * presse-papiers.
  * Pour exécuter, la page envoie le PROJET : le processus principal le revalide et régénère les commandes.
  */
 'use strict';
@@ -17,6 +18,8 @@ const subscribe = (channel) => (callback) => {
 
 contextBridge.exposeInMainWorld('agepede', {
   detectEnvironment: () => ipcRenderer.invoke('env:detect'),
+  /** Lecture seule de l'annuaire : { ok, directory: { base, at, ous, users, groups } } ou { ok: false, error }. */
+  readDirectory: () => ipcRenderer.invoke('ad:read'),
   openProject: () => ipcRenderer.invoke('project:open'),
   /** req : { project, filePath, name, saveAs } — filePath n'est réutilisé que s'il a été choisi dans une boîte de dialogue. */
   saveProject: (req) => ipcRenderer.invoke('project:save', req),
