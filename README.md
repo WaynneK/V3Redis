@@ -7,7 +7,7 @@ on installe V3Redis, et toutes ses applications avec ; elles se mettent à jour 
 |---|---|
 | [`V3Redis/`](V3Redis/) | le HUB : sélecteur d'applications, lancement, **mises à jour**, paquets « tout en un » |
 | [`CalkIP/`](CalkIP/) | calculatrice IPv4 hors ligne (calculs en binaire pas à pas) |
-| [`PredF/`](PredF/) | fusion et conversion de PDF, assistant IA (Claude ou IA locale gratuite) |
+| [`PredF/`](PredF/) | fusion, conversion et modification de PDF (texte, images, signature, formulaire, caviardage), assistant IA (Claude ou IA locale gratuite) |
 | [`Agépédé/`](Agépédé/) | OU, groupes globaux et domaine local Active Directory en AGDLP (exécution sous Windows Server) |
 | [`Cours/`](Cours/) | résumés des cours de la formation : M.Julia (IP, Windows Server, Connexion), A.Julia (hardware), Microsoft Office |
 | [`FichInter/`](FichInter/) | fiches d'intervention : modèle Word au choix, formulaire adapté à ses cases, fiche .docx générée et vérifiée |

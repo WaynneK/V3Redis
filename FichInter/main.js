@@ -176,7 +176,7 @@ function cleanValues(raw) {
     if (!/^t\d{1,3}\.r\d{1,4}\.c\d{1,3}$/.test(key)) continue;
     if (typeof v === 'string') out[key] = str(v);
     else if (typeof v === 'boolean') out[key] = v;
-    else if (Array.isArray(v)) out[key] = v.slice(0, 20).map(str);
+    else if (Array.isArray(v)) out[key] = v.slice(0, 200).map(str); // pointillés, cases d'un tableau à remplir
     else if (v && typeof v === 'object') {
       if (Array.isArray(v.selected)) {
         const extra = {};

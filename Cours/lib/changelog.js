@@ -15,6 +15,17 @@
 
   return [
     {
+      version: '0.1.1',
+      date: '2026-10-13',
+      title: 'Condensé Carte mère et cours Word',
+      changes: [
+        'Carte mère : le condensé est disponible (fiches de révision maintenance et carte mère), bouton et onglet « Condensé ».',
+        'Microsoft Office : deux cours Word. « Word en ligne » : insérer un tableau, insérer une forme.',
+        '« Word version bureau » : tableaux (avec un exercice), formes, groupes de formes, zones de texte, et une vidéo sur les formes.',
+        'M.Julia : 9 cours TIP (historique, informatique, réseaux, IP, virtualisation, VirtualBox, bases Microsoft), contenu à venir.',
+      ],
+    },
+    {
       version: '0.1.0',
       date: '2026-10-12',
       title: 'Lancement de Cours',

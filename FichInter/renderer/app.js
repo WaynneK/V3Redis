@@ -536,7 +536,7 @@
             h(
               'button',
               { type: 'button', class: 'fn-item', dataset: { sec: s.id }, onclick: () => scrollToSection(s.id) },
-              h('span', { class: 'fn-title' }, s.title),
+              h('span', { class: 'fn-title' }, sectionName(s.title)),
               h('span', { class: 'fn-count', id: `count-${s.id}` }, '')
             )
           )
@@ -545,11 +545,13 @@
       h('div', { class: 'fn-progress' }, h('div', { class: 'bar' }, h('span', { id: 'progress-bar' })), h('small', { id: 'progress-text', class: 'muted' }, ''))
     );
 
+    // Numéros des sections : ceux du modèle (« 3 MATÉRIEL CONCERNÉ »), sinon leur rang
+    const numbered = schema.sections.some((s) => sectionLabel(s.title).num);
     const sections = schema.sections.map((s, i) =>
       h(
         'section',
         { class: 'fsec', id: `sec-${s.id}`, dataset: { sec: s.id }, style: { '--i': String(i) } },
-        h('h2', null, h('span', { class: 'fsec-num' }, String(i + 1)), h('span', null, s.title.replace(/^\d+\s*[.)-]\s*/, ''))),
+        h('h2', null, h('span', { class: 'fsec-num' }, numbered ? sectionLabel(s.title).num || 'i' : String(i + 1)), h('span', null, sectionLabel(s.title).text)),
         h('div', { class: 'fgrid' }, s.fields.map(fieldEl))
       )
     );
@@ -601,6 +603,18 @@
     return s === s.toUpperCase() ? s.charAt(0) + s.slice(1).toLowerCase() : s;
   }
 
+  /** Titre de section du modèle : « 3 MATÉRIEL CONCERNÉ » → { num: '3', text: 'Matériel concerné' }. */
+  function sectionLabel(title) {
+    const m = /^(\d+)\s*[.)-]?\s+(\S.*)$/.exec(String(title || '').trim());
+    return { num: m ? m[1] : '', text: prettyTitle(m ? m[2] : title) };
+  }
+
+  /** Titre de section lisible, numéro compris : « 3. Matériel concerné ». */
+  function sectionName(title) {
+    const { num, text } = sectionLabel(title);
+    return num ? `${num}. ${text}` : text;
+  }
+
   function scrollToSection(id) {
     const el = $(`sec-${id}`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -636,7 +650,7 @@
   // Champs
   // ---------------------------------------------------------------------------
 
-  const WIDE = new Set(['textarea', 'choice', 'check', 'blanks', 'signature']);
+  const WIDE = new Set(['textarea', 'choice', 'check', 'blanks', 'signature', 'table']);
   const inputId = (f, suffix = '') => `f-${f.key.replace(/\./g, '-')}${suffix}`;
 
   function fieldEl(f) {
@@ -658,8 +672,12 @@
       case 'blanks':
         body = blanksEl(f);
         break;
+      case 'table':
+        body = tableEl(f);
+        break;
       case 'signature':
         body = signatureEl(f);
+        if (f.nameless) label.removeAttribute('for');
         break;
       case 'textarea':
         body = textareaEl(f);
@@ -807,6 +825,7 @@
 
     render();
     wrap.append(chips, extras);
+    if (f.note) wrap.append(h('blockquote', { class: 'note' }, f.note));
     return wrap;
   }
 
@@ -837,7 +856,8 @@
       const b = f.blanks[p.blank];
       const id = inputId(f, p.blank ? `-${p.blank}` : '');
       if (!firstId) firstId = id;
-      const input = h('input', { id, type: b.kind === 'date' ? 'date' : 'text', class: 'input', placeholder: b.kind === 'date' ? null : b.label, 'aria-label': b.label, maxlength: '300' });
+      const typed = b.kind === 'date' || b.kind === 'time';
+      const input = h('input', { id, type: typed ? b.kind : 'text', class: 'input', placeholder: typed ? null : b.label, 'aria-label': b.label, maxlength: '300' });
       input.value = String(cur()[p.blank] || '');
       input.addEventListener('input', () => {
         const v = cur();
@@ -847,6 +867,42 @@
       sentence.append(input);
     }
     return h('div', { class: 'fld-body' }, sentence);
+  }
+
+  /** Tableau à remplir (pièces remplacées…) : une case par cellule, autant de lignes que sur la fiche. */
+  function tableEl(f) {
+    const cols = f.columns.length;
+    const cur = () => {
+      const v = Array.isArray(state.values[f.key]) ? [...state.values[f.key]] : [];
+      while (v.length < f.rows * cols) v.push('');
+      return v;
+    };
+    // Colonnes de nombres (quantité, prix) plus étroites
+    const narrow = f.columns.map((c) => /^(qte|quantite|nb|nombre|prix|pu|p\.u\.?|total|montant)\b/.test(F.norm(c)));
+    const grid = h('div', { class: 'ptable', role: 'group', 'aria-label': f.label, style: { 'grid-template-columns': narrow.map((n) => (n ? 'minmax(70px, 0.45fr)' : 'minmax(0, 2fr)')).join(' ') } });
+    f.columns.forEach((c) => grid.append(h('span', { class: 'pt-head' }, c)));
+    for (let r = 0; r < f.rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const input = h('input', {
+          id: inputId(f, r || c ? `-${r}-${c}` : ''),
+          type: 'text',
+          class: 'input',
+          autocomplete: 'off',
+          'aria-label': `${f.columns[c]}, ligne ${r + 1}`,
+          inputmode: narrow[c] ? 'decimal' : null,
+          spellcheck: narrow[c] ? 'false' : 'true',
+          maxlength: '300',
+        });
+        input.value = String(cur()[r * cols + c] || '');
+        input.addEventListener('input', () => {
+          const v = cur();
+          v[r * cols + c] = input.value;
+          setValue(f, v);
+        });
+        grid.append(input);
+      }
+    }
+    return h('div', { class: 'fld-body' }, grid, h('small', { class: 'fld-hint muted' }, `${plural(f.rows, 'ligne', 'lignes')} sur la fiche : les lignes laissées vides restent vides.`));
   }
 
   function signatureEl(f) {
@@ -882,7 +938,9 @@
     };
     render();
     const a = f.assist || {};
-    return h('div', { class: 'fld-body sig' }, h('div', { class: 'input-wrap' }, name), pad, a.remember ? h('small', { class: 'fld-hint muted' }, 'Nom et signature repris automatiquement sur la prochaine fiche.') : null, h('small', { class: 'fld-hint muted' }, 'La signature est facultative : la case peut aussi être signée à la main sur la fiche imprimée.'));
+    // Cadre qui a déjà sa case « Nom » : seule la signature dessinée est demandée ici
+    const remembered = f.nameless ? 'Signature reprise automatiquement sur la prochaine fiche.' : 'Nom et signature repris automatiquement sur la prochaine fiche.';
+    return h('div', { class: 'fld-body sig' }, f.nameless ? null : h('div', { class: 'input-wrap' }, name), pad, a.remember ? h('small', { class: 'fld-hint muted' }, remembered) : null, h('small', { class: 'fld-hint muted' }, 'La signature est facultative : la case peut aussi être signée à la main sur la fiche imprimée.'));
   }
 
   /** Durée calculée (heure d'arrivée → heure de fin), proposée dans « Temps / Tarif ». */
@@ -1140,7 +1198,7 @@
               h(
                 'div',
                 { class: 'cg' },
-                h('h3', null, g.section),
+                h('h3', null, sectionName(g.section)),
                 g.items.map((c) =>
                   h(
                     'div',
@@ -1271,8 +1329,9 @@
   function emptyModal(empty) {
     const bySection = new Map();
     for (const { f, s } of empty) {
-      if (!bySection.has(s.title)) bySection.set(s.title, []);
-      bySection.get(s.title).push(f.label);
+      const name = sectionName(s.title);
+      if (!bySection.has(name)) bySection.set(name, []);
+      bySection.get(name).push(f.label);
     }
     const body = h(
       'div',

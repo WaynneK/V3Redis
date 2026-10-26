@@ -90,10 +90,10 @@ module.exports = [
     id: 'predf',
     name: 'PredF',
     tagline: 'Vos PDF convertis et fusionnés',
-    description: 'Fusion et conversion de PDF : assembler, réorganiser et convertir vos documents.',
+    description: 'Fusion, conversion et modification de PDF : assembler, réorganiser, convertir, et modifier texte, images, signature ou formulaire.',
     icon: 'predf.svg',
     accent: '#ff5d73',
-    features: ['Fusion et découpe', 'Pages à réorganiser', 'Images ↔ PDF', 'Compression', '100 % hors ligne'],
+    features: ['Fusion et découpe', 'Modifier un PDF', 'Signature et formulaires', 'Images ↔ PDF', 'Compression', '100 % hors ligne'],
     status: 'available',
     downloadUrl: null,
     windows: {

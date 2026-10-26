@@ -12,7 +12,9 @@
  * Cours en DOSSIER (plusieurs fichiers) : pdfs/<partie>/<Nom du cours>/ avec ses PDF et ses photos, et un
  *   sous-dossier « Condensé » pour le PDF qui rassemble tout le cours (bouton « Condensé »). Informations :
  *   { folder: 'Nom du cours', title?, date?: 'AAAA-MM-JJ' (date du cours, ordre de la liste), description?,
- *     icon?: 'alimentation' | 'cpu' | 'carte-mere' | 'chipset' | 'bios' | 'disque' | 'codage' | 'document',
+ *     icon?: 'alimentation' | 'cpu' | 'carte-mere' | 'chipset' | 'bios' | 'disque' | 'codage' | 'document' |
+ *            'word-web' | 'word-bureau' | 'historique' | 'informatique' | 'reseau' | 'internet' | 'ip' |
+ *            'virtualisation' | 'labs' | 'exercice' | 'windows',
  *     files?: { 'nom du fichier': 'Titre affiché' } }.
  *
  * Partie : { id, name, initials, logo?: 'microsoft', description, topics: [thèmes affichés], accent: '#rrggbb',
@@ -35,8 +37,17 @@
         description: 'IP, Windows Server, Connexion',
         topics: ['IP', 'Windows Server', 'Connexion'],
         accent: '#38bdf8',
+        // Cours TIP : un dossier par cours, numéroté pour l'ordre de la liste (PDF à venir)
         documents: [
-          // { file: '01 - Adressage IP.pdf', title: 'Adressage IP', description: 'IPv4, masques, sous-réseaux.' },
+          { folder: '02 - Historique', title: 'Historique', icon: 'historique', description: 'L\'histoire de l\'informatique, des premières machines à calculer aux ordinateurs d\'aujourd\'hui.', files: {} },
+          { folder: '03 - Informatique', title: 'Informatique', icon: 'informatique', description: 'Les notions de base de l\'informatique.', files: {} },
+          { folder: '04 - Infrastructure réseau', title: 'Infrastructure réseau', icon: 'reseau', description: 'L\'infrastructure d\'un réseau : équipements, câblage et organisation.', files: {} },
+          { folder: '05 - Bases réseau', title: 'Bases réseau', icon: 'internet', description: 'Les bases des réseaux informatiques.', files: {} },
+          { folder: '05b - Exercices résolution IP', title: 'Exercices : résolution IP', icon: 'ip', description: 'Exercices sur l\'adressage IP.', files: {} },
+          { folder: '06 - Virtualisation', title: 'Virtualisation', icon: 'virtualisation', description: 'La virtualisation : hyperviseurs et machines virtuelles.', files: {} },
+          { folder: '06b - VirtualBox mise en place des labs', title: 'VirtualBox : mise en place des labs', icon: 'labs', description: 'Installer VirtualBox et mettre en place les machines des labs.', files: {} },
+          { folder: '06c - Exercices VirtualBox', title: 'Exercices VirtualBox', icon: 'exercice', description: 'Exercices pratiques sur VirtualBox.', files: {} },
+          { folder: '07 - Les bases Microsoft', title: 'Les bases Microsoft', icon: 'windows', description: 'Les bases de l\'environnement Microsoft.', files: {} },
         ],
       },
       {
@@ -74,8 +85,11 @@
             folder: 'Carte mère',
             title: 'Carte mère',
             icon: 'carte-mere',
-            description: 'La carte mère composant par composant : socket, chipsets, mémoire, connecteurs (exemple : Asus P5B-V).',
-            files: { 'p5v.pdf': 'Carte mère Asus P5B-V : repérage des composants' },
+            description: 'La carte mère composant par composant : socket, chipsets, mémoire, connecteurs (exemple : Asus P5B-V). Condensé : fiches de révision maintenance et carte mère.',
+            files: {
+              'p5v.pdf': 'Carte mère Asus P5B-V : repérage des composants',
+              'Fiches de révision Maintenance et carte mère.pdf': 'Fiches de révision : maintenance et carte mère',
+            },
           },
           {
             folder: 'Chipset',
@@ -131,7 +145,32 @@
         description: 'Word, Excel, PowerPoint, Outlook',
         topics: ['Word', 'Excel', 'PowerPoint', 'Outlook'],
         accent: '#f97316',
-        documents: [],
+        documents: [
+          {
+            folder: 'Word en ligne',
+            title: 'Word en ligne',
+            icon: 'word-web',
+            description: 'Word dans le navigateur (Microsoft 365, OneDrive) : créer, enregistrer, partager et modifier un document à plusieurs.',
+            files: {
+              'Insérer un tableau.pdf': 'Insérer un tableau',
+              'Insérer une forme.pdf': 'Insérer une forme',
+            },
+          },
+          {
+            folder: 'Word version bureau',
+            title: 'Word version bureau',
+            icon: 'word-bureau',
+            description: 'Word installé sur l\'ordinateur : tableaux, formes, zones de texte, avec une vidéo et un exercice.',
+            files: {
+              'Insérer un tableau.pdf': 'Insérer un tableau',
+              'Exercice création de tableau.pdf': 'Exercice : créer un tableau',
+              'Insérer une forme.pdf': 'Insérer une forme',
+              'Grouper des formes.pdf': 'Grouper des formes',
+              'Insérer une zone de texte.pdf': 'Insérer une zone de texte',
+              'Insérer des formes.mp4': 'Vidéo : insérer des formes',
+            },
+          },
+        ],
       },
     ],
   };

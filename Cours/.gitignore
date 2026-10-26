@@ -1,2 +1,5 @@
 node_modules/
 dist/
+
+# Fichiers de plus de 100 Mo (refusés par GitHub) : gardés sur le PC, intégrés aux builds faits sur le PC
+pdfs/office/Word version bureau/Insérer des formes.mp4

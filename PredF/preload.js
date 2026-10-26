@@ -48,6 +48,14 @@ contextBridge.exposeInMainWorld('predf', {
   releasePending: invoke('pending:release'),
   stampPreview: invoke('stamp:preview'),
   stampSave: invoke('stamp:save'),
+  editFonts: invoke('edit:fonts'),
+  editBuild: invoke('edit:build'), // (id du PDF, plan, { id d'image: octets }) → { id du résultat, size, pages }
+  editRasterize: invoke('edit:rasterize'), // (id du résultat, [{ index, bytes }]) : caviardage
+  pendingBytes: async (id) => {
+    const res = await ipcRenderer.invoke('pending:bytes', id);
+    if (!ArrayBuffer.isView(res)) throw new Error((res && res.error) || 'Résultat introuvable.');
+    return res;
+  },
   chooseExportDir: invoke('export:chooseDir'),
   writeExport: invoke('export:write'),
   saveText: invoke('export:text'),

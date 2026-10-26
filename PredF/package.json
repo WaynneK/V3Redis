@@ -1,8 +1,8 @@
 {
   "name": "predf",
   "productName": "PredF",
-  "version": "1.0.0",
-  "description": "Fusion et conversion de PDF, 100 % hors ligne : fusionner, organiser, découper, convertir, compresser.",
+  "version": "1.1.0",
+  "description": "Fusion, conversion et modification de PDF, 100 % hors ligne : fusionner, organiser, découper, modifier, convertir, compresser.",
   "main": "main.js",
   "author": "WaynneK",
   "license": "MIT",

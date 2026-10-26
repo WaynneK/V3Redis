@@ -593,12 +593,17 @@ body[data-view='part'] .main {
 }
 
 .cp-title h1 {
-  font: 700 22px var(--display);
+  min-width: 0;
+  font: 700 22px/1.15 var(--display);
+  overflow-wrap: anywhere;
 }
 
+/* « 2 cours » : jamais coupé, même quand le nom de la partie passe sur deux lignes */
 .cp-title > span:not(.avatar) {
+  flex: none;
   color: var(--faint);
   font-size: 13px;
+  white-space: nowrap;
 }
 
 .cp-head p {

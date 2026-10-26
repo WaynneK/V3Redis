@@ -113,13 +113,14 @@
   //   choice     : { selected: [index…], extra: { [index]: '…' } }
   //   check      : true / false
   //   blanks     : ['…', '…']
+  //   table      : ['…', '…', …] (cases du tableau ligne par ligne)
   //   signature  : { name: '…', image: 'data:image/png;base64,…' | '' }
 
   /** Le champ est-il rempli ? */
   function isFilled(field, value) {
     if (field.kind === 'choice') return Boolean(value && Array.isArray(value.selected) && value.selected.length);
     if (field.kind === 'check') return value === true;
-    if (field.kind === 'blanks') return Array.isArray(value) && value.some((v) => String(v || '').trim());
+    if (field.kind === 'blanks' || field.kind === 'table') return Array.isArray(value) && value.some((v) => String(v || '').trim());
     if (field.kind === 'signature') return Boolean(value && (String(value.name || '').trim() || value.image));
     return typeof value === 'string' && value.trim() !== '';
   }
@@ -146,6 +147,16 @@
         return field.options[0] ? field.options[0].label : 'Oui';
       case 'blanks':
         return field.blanks.map((b, i) => formatValue(b.kind, String(value[i] || '')).trim()).filter(Boolean).join(' · ');
+      case 'table': {
+        // Une ligne remplie = ses cases séparées par « / » ; lignes séparées par « · »
+        const cols = field.columns.length;
+        const rows = [];
+        for (let r = 0; r * cols < value.length; r++) {
+          const cells = value.slice(r * cols, r * cols + cols).map((v) => String(v || '').replace(/\s+/g, ' ').trim());
+          if (cells.some(Boolean)) rows.push(cells.filter(Boolean).join(' / '));
+        }
+        return rows.join(' · ');
+      }
       case 'signature': {
         const name = String(value.name || '').trim();
         return [name, value.image ? 'signature manuscrite' : ''].filter(Boolean).join(' · ');
@@ -169,15 +180,17 @@
    */
   function assistOf(field) {
     const n = norm(field.label);
+    const own = n.split(' · ').pop(); // intitulé sans le titre de son cadre (« Client · Date » → « date »)
+    const future = /prochain|rendez-vous|rappel|echeance|jusqu/.test(n); // date à venir : pas la date du jour
     const a = {};
-    if (field.kind === 'date' && /intervention|^date$|^le$/.test(n)) a.today = true;
+    if (field.kind === 'date' && !future && /intervention|^date$|^le$/.test(own)) a.today = true;
     if (field.kind === 'time' || field.kind === 'datetime') a.now = true;
-    if (/technicien|intervenant|\bagent\b/.test(n) && field.kind !== 'signature') a.remember = true;
+    if (/technicien|intervenant|\bagent\b/.test(n) && field.kind === 'text') a.remember = true;
     if (field.kind === 'signature' && /technicien|intervenant/.test(n)) a.remember = true;
-    if (/^((ref|reference|n°|no|numero)\.? (du |de )?)?dossier\b/.test(n)) a.ref = true;
-    if (/^(temps|duree)\b/.test(n)) a.duration = true;
+    if (/^((ref|reference|n°|no|numero)\.? (du |de )?)?dossier\b|^(n°|no|numero) (de )?(la )?fiche\b/.test(own)) a.ref = true;
+    if (/^(temps|duree)\b/.test(own)) a.duration = true;
     if (field.kind === 'blanks') {
-      a.blanks = field.blanks.map((b) => (b.kind === 'date' ? { today: true } : /fait a/.test(n) ? { remember: true } : {}));
+      a.blanks = field.blanks.map((b) => (b.kind === 'date' && !future ? { today: true } : /fait a/.test(n) ? { remember: true } : {}));
     }
     return a;
   }
@@ -203,11 +216,12 @@
     return /^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i.test(cut) ? `_${cut}` : cut;
   }
 
-  /** Premier champ texte rempli dont l'intitulé correspond. */
-  function findText(schema, values, re) {
+  /** Premier champ texte rempli dont l'intitulé correspond (et, si demandé, le titre de sa section). */
+  function findText(schema, values, re, sectionRe) {
     for (const s of schema.sections) {
+      if (sectionRe && !sectionRe.test(norm(s.title))) continue;
       for (const f of s.fields) {
-        if (re.test(norm(f.label)) && typeof values[f.key] === 'string' && values[f.key].trim() && f.kind !== 'textarea') {
+        if (re.test(norm(f.label)) && typeof values[f.key] === 'string' && values[f.key].trim() && f.kind === 'text') {
           return values[f.key].trim().replace(/^(m\.|mr\.?|mme|mlle|monsieur|madame)\s+/i, '');
         }
       }
@@ -217,7 +231,11 @@
 
   /** « Fiche d'intervention - Dupont - 13-10-2026 » (sans extension). */
   function fileTitle(schema, values, now) {
-    const who = findText(schema, values, /^(client|nom du client|societe|raison sociale|entreprise)/) || findText(schema, values, /societe|raison sociale|client/);
+    const who =
+      findText(schema, values, /^(client$|nom du client|societe|raison sociale|entreprise)/) ||
+      findText(schema, values, /^nom\b/, /client/) || // « Nom (M. / Mme) » de la section « Client »
+      findText(schema, values, /^client\b/) || // « Client · Nom » (cadre de signature)
+      findText(schema, values, /societe|raison sociale|client/);
     let when = '';
     for (const s of schema.sections) {
       for (const f of s.fields) {

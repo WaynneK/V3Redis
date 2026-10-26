@@ -1,12 +1,14 @@
 /*
- * fixtures.js — Données de test : saisies complètes pour le modèle livré, signature PNG minimale.
+ * fixtures.js — Données de test : saisies complètes pour le modèle de test (premier modèle, mise en page
+ * « intitulé | case » simple) et pour le modèle livré (VersusLabz), signature PNG minimale.
  */
 'use strict';
 
 const path = require('node:path');
 const zlib = require('node:zlib');
 
-const MODEL = path.join(__dirname, '..', 'modeles', 'Fiche d\'intervention (test).docx');
+const MODEL = path.join(__dirname, 'modele-test.docx');
+const VERSUS = path.join(__dirname, '..', 'modeles', 'Fiche d\'intervention VersusLabz.docx');
 
 /** PNG valide (trait noir sur fond transparent), sans dépendance. */
 function signaturePng(width = 240, height = 80) {
@@ -100,4 +102,50 @@ const VALUES = {
   't5.r4.c1': { name: 'Jean Dupont', image: '' },
 };
 
-module.exports = { MODEL, VALUES, signaturePng };
+/** Saisies d'une fiche complète pour le modèle VersusLabz. */
+const VERSUS_VALUES = {
+  't1.r0.c1': 'INT-20261022-01',
+  't1.r0.c3': 'D-2026-0457',
+  't1.r0.c5': '2026-10-22',
+  't2.r1.c1': 'M. Jean Dupont',
+  't2.r2.c1': 'Dupont & Fils <SARL>',
+  't2.r3.c1': 'C-0042',
+  't2.r3.c3': '06 12 34 56 78',
+  't2.r4.c1': '12 avenue de la Gare\n66000 Perpignan',
+  't2.r6.c1': 'j.dupont@exemple.fr',
+  't2.r1.c4': 'Waynne K.',
+  't2.r2.c4': { selected: [0] },
+  't2.r3.c6': '09:05',
+  't2.r3.c8': '10:35',
+  't2.r4.c4': '1h30',
+  't2.r4.c6': '90 € HT',
+  't2.r5.c4': { selected: [1], extra: { 1: 'MC-2026-118' } },
+  't2.r6.c4': { selected: [0] },
+  't3.r0.c1': { selected: [4], extra: { 4: 'NAS Synology' } },
+  't3.r1.c1': 'Synology',
+  't3.r1.c3': 'DS220+',
+  't3.r1.c5': '2140QSRK7Q2',
+  't3.r2.c1': 'DSM 7.2',
+  't3.r2.c3': { selected: [1], extra: { 1: '2027-03-31' } },
+  't4.r0.c1': { selected: [2] },
+  't4.r2.c0': 'Le NAS ne répond plus.\nVoyant d\'état orange clignotant.',
+  't4.r4.c0': 'Volume 1 dégradé',
+  't4.r4.c2': 'Redémarrage du NAS.',
+  't5.r0.c1': { selected: [0, 4, 6], extra: { 6: 'Remplacement disque' } },
+  't5.r1.c3': { selected: [0] },
+  't5.r3.c0': 'Disque 2 en panne (secteurs réalloués).',
+  't5.r3.c2': 'Remplacement du disque 2, reconstruction du RAID.',
+  't5.r7.c0': ['Disque dur 4 To WD Red Plus', 'WD40EFZX', '1', '', '', '', 'Câble SATA', 'SATA-50', '2'],
+  't5.r10.c1': { selected: [2], extra: { 2: 'reconstruction en cours' } },
+  't6.r0.c0': 'Prévoir un onduleur.',
+  't6.r0.c3': { selected: [1], extra: { 1: 'contrôle du RAID' } },
+  't6.r2.c3': ['2026-11-05', '14:30'],
+  't7.r1.c1': 'Waynne K.',
+  't7.r1.c3': '2026-10-22',
+  't7.r1.c6': 'Jean Dupont',
+  't7.r1.c8': '2026-10-22',
+  't7.r2.c1': { name: '', image: '' },
+  't7.r2.c4': { name: '', image: '' },
+};
+
+module.exports = { MODEL, VALUES, VERSUS, VERSUS_VALUES, signaturePng };

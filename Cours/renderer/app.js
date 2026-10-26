@@ -90,6 +90,28 @@
     disque: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M11 6.5a5 5 0 1 0 0 10 5 5 0 0 0 0-10z', 'M11 10.7a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6z', 'M18 6.5v6.5l-3.5 3', 'M6 19h.01M18 19h.01'],
     codage: ['M8 8l-4 4 4 4', 'M16 8l4 4-4 4', 'M13.5 5.5l-3 13'],
     document: ['M6 2.5h8l5 5V21a.5.5 0 0 1-.5.5h-12A.5.5 0 0 1 6 21z', 'M14 2.5V8h5', 'M9 13h7M9 17h5'],
+    // Word en ligne : nuage et W
+    'word-web': ['M6.5 19h11a4.5 4.5 0 0 0 .6-8.96A6 6 0 0 0 6.6 9.2 4.9 4.9 0 0 0 6.5 19z', 'M8.5 12.5l1.4 4.3 2.1-3.4 2.1 3.4 1.4-4.3'],
+    // Word version bureau : écran, pied et W
+    'word-bureau': ['M3.5 4h17a1 1 0 0 1 1 1v10.5a1 1 0 0 1-1 1h-17a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z', 'M9 20.5h6M12 16.5v4', 'M7.5 7.5l1.6 5.5 2.9-4 2.9 4 1.6-5.5'],
+    // Historique : horloge et flèche de retour
+    historique: ['M3.5 12a8.5 8.5 0 1 0 2.6-6.1', 'M3 3.5V8h4.5', 'M12 7.5V12l3 2'],
+    // Informatique : écran et tour
+    informatique: ['M3 4.5h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z', 'M6 19h6M9 14.5V19', 'M18.5 5h2a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'M19.5 8.5h.01'],
+    // Infrastructure réseau : un équipement relié à deux autres
+    reseau: ['M9.5 3h5a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z', 'M3 16h5a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1z', 'M16 16h5a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1z', 'M12 8v4M5.5 16v-4h13v4'],
+    // Bases des réseaux : globe
+    internet: ['M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18', 'M3 12h18', 'M12 3c2.4 2.5 3.6 5.5 3.6 9s-1.2 6.5-3.6 9c-2.4-2.5-3.6-5.5-3.6-9S9.6 5.5 12 3z'],
+    // Adressage IP : les lettres « IP »
+    ip: ['M7 6v12', 'M11.5 18V6h4a3.5 3.5 0 0 1 0 7h-4'],
+    // Virtualisation : cube
+    virtualisation: ['M12 2.5l8.5 4.75v9.5L12 21.5l-8.5-4.75v-9.5z', 'M3.5 7.25L12 12l8.5-4.75', 'M12 12v9.5'],
+    // Labs : fiole de laboratoire
+    labs: ['M9 3h6', 'M10 3v6.2l-5.3 9.2A1.7 1.7 0 0 0 6.2 21h11.6a1.7 1.7 0 0 0 1.5-2.6L14 9.2V3', 'M7.2 15h9.6'],
+    // Exercices : crayon
+    exercice: ['M4 20l1.2-4.5L15.7 5a2.1 2.1 0 0 1 3 3L8.3 18.5z', 'M14 6.7l3.2 3.2'],
+    // Les bases Microsoft : logo Windows
+    windows: ['M3 5.6l7.5-1.1v7H3z', 'M12.5 4.2L21 3v8.5h-8.5z', 'M3 13h7.5v6.5L3 18.4z', 'M12.5 13H21v8l-8.5-1.2z'],
   };
   /** Vignette d'un cours (icône sur la couleur de sa partie), ou null s'il n'a pas d'icône. */
   function courseArt(d, cls) {

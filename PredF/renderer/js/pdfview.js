@@ -28,6 +28,7 @@ const BASE = {
   isEvalSupported: false,
   enableXfa: false,
   disableAutoFetch: true,
+  fontExtraProperties: true, // nom des polices (« Calibri-Bold ») : texte modifié écrit dans une police proche
 };
 
 const docs = new Map(); // clé → Promise<PDFDocumentProxy>

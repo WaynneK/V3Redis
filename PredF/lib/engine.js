@@ -589,6 +589,7 @@ module.exports = {
   buildPdf,
   createRasterJob,
   optimizePdf,
+  dropUnreachable,
   stampPdf,
   NUMBER_FORMATS,
 };

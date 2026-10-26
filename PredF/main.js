@@ -21,6 +21,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const crypto = require('node:crypto');
 const Engine = require('./lib/engine.js');
+const Edit = require('./lib/edit.js');
 const Ranges = require('./lib/ranges.js');
 const AI = require('./lib/ai.js');
 const LocalAI = require('./lib/localai.js');
@@ -496,6 +497,35 @@ function registerIpc() {
     const bytes = await Engine.stampPdf(d.bytes, opts);
     await writeFileSafe(filePath, bytes);
     return { ok: true, filePath, size: bytes.length, pages: d.pageCount };
+  });
+
+  // --- Modifier : texte, images, formes, dessins, formulaire, pages, caviardage ---
+  handle('edit:fonts', async () => ({ ok: true, fonts: Edit.fonts() }));
+  handle('edit:build', async (docId, plan, images) => {
+    const d = getDoc(docId);
+    const imgs = {};
+    for (const [k, v] of Object.entries(images && typeof images === 'object' ? images : {})) {
+      if (ArrayBuffer.isView(v)) imgs[String(k)] = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+    }
+    sendProgress(0, 1, 'Application des modifications…');
+    const bytes = await Edit.editPdf(d.bytes, plan, imgs, { onProgress: (done, total) => sendProgress(done, total, 'Application des modifications…') });
+    const pages = (await Engine.inspect(bytes)).pageCount;
+    const out = newId();
+    pending.set(out, { bytes, pages });
+    return { ok: true, id: out, size: bytes.length, pages };
+  });
+  // Caviardage : pages du résultat rendues en image par l'interface (pdf.js), puis remplacées ici
+  handle('pending:bytes', async (id) => {
+    const p = pending.get(String(id));
+    if (!p) throw new Engine.PdfError('Résultat introuvable : relancez le traitement.');
+    return p.bytes;
+  });
+  handle('edit:rasterize', async (id, pages) => {
+    const p = pending.get(String(id));
+    if (!p) throw new Engine.PdfError('Résultat introuvable : relancez le traitement.');
+    const list = (Array.isArray(pages) ? pages : []).slice(0, 20000).map((x) => ({ index: Number(x && x.index), bytes: x && ArrayBuffer.isView(x.bytes) ? x.bytes : new Uint8Array(0) }));
+    p.bytes = await Edit.rasterizePages(p.bytes, list);
+    return { ok: true, size: p.bytes.length, pages: p.pages };
   });
 
   // --- Export : images et texte ---

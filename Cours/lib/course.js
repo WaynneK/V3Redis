@@ -78,7 +78,7 @@
 
   const LOGOS = ['microsoft']; // logos de partie dessinés par la page (renderer/app.js)
   /** Icônes de cours (content.js : icon), dessinées par la page (renderer/app.js, COURSE_ICONS). */
-  const COURSE_ICONS = ['alimentation', 'cpu', 'carte-mere', 'chipset', 'bios', 'disque', 'codage', 'document'];
+  const COURSE_ICONS = ['alimentation', 'cpu', 'carte-mere', 'chipset', 'bios', 'disque', 'codage', 'document', 'word-web', 'word-bureau', 'historique', 'informatique', 'reseau', 'internet', 'ip', 'virtualisation', 'labs', 'exercice', 'windows'];
 
   function validate(content) {
     const errors = [];

@@ -1,8 +1,8 @@
 # PredF
 
-Fusion et conversion de PDF **locales** : fusionner, organiser, découper, convertir images ↔ PDF, compresser, numéroter et marquer d'un filigrane. En option, un **Assistant IA** (API Claude d'Anthropic) qui fusionne, résume ou simplifie des documents sur simple consigne.
+Fusion, conversion et modification de PDF **locales** : fusionner, organiser, découper, **modifier** (texte, images, signature, formes, formulaire, caviardage), convertir images ↔ PDF, compresser, numéroter et marquer d'un filigrane. En option, un **Assistant IA** (API Claude d'Anthropic) qui fusionne, résume ou simplifie des documents sur simple consigne.
 
-Les sept outils fonctionnent sans Internet : la page ne charge que le protocole interne de l'application (`predf://`), toute requête http(s)/ws de la page est annulée, et vos fichiers ne quittent pas l'ordinateur. **Seule exception : l'Assistant IA en mode Claude**, uniquement quand vous le lancez — il envoie alors les documents ajoutés et la consigne à l'API Claude d'Anthropic (depuis le processus principal), ce que l'écran rappelle clairement. En mode IA locale gratuite (Ollama), tout reste sur l'ordinateur.
+Les huit outils fonctionnent sans Internet : la page ne charge que le protocole interne de l'application (`predf://`), toute requête http(s)/ws de la page est annulée, et vos fichiers ne quittent pas l'ordinateur. **Seule exception : l'Assistant IA en mode Claude**, uniquement quand vous le lancez — il envoie alors les documents ajoutés et la consigne à l'API Claude d'Anthropic (depuis le processus principal), ce que l'écran rappelle clairement. En mode IA locale gratuite (Ollama), tout reste sur l'ordinateur.
 
 ## Commandes
 
@@ -15,8 +15,8 @@ npm start
 ```
 
 - `npm run dev` : avec les DevTools.
-- `npm test` : tests du moteur PDF et de la saisie des pages (`test/engine.test.js`, `node:test`).
-- `npm run build:win` : installeur `dist/PredF-Setup-1.0.0.exe` + version portable `dist/PredF-Portable-1.0.0.exe`.
+- `npm test` : tests du moteur PDF, de la saisie des pages, de l'édition et de l'Assistant (`test/*.test.js`, `node:test`).
+- `npm run build:win` : installeur `dist/PredF-Setup-<version>.exe` + version portable `dist/PredF-Portable-<version>.exe`.
 - `npm run build:linux` : AppImage (à lancer sous Linux).
 
 ## Démarrage
@@ -25,17 +25,35 @@ npm start
 
 ## Outils
 
-Une barre latérale, sept outils (plus l'Assistant IA, décrit plus bas). Chaque outil commence par une grande zone de dépôt ; on peut aussi **glisser des fichiers n'importe où dans la fenêtre** (s'ils ne conviennent pas à l'outil ouvert, PredF ouvre le bon), ou les ouvrir avec <kbd>Ctrl</kbd> + <kbd>O</kbd>. Rien n'est jamais écrasé : chaque résultat est enregistré là où vous le choisissez, puis un bandeau propose **Ouvrir** et **Afficher dans le dossier**.
+Une barre latérale, huit outils (plus l'Assistant IA, décrit plus bas). Chaque outil commence par une grande zone de dépôt ; on peut aussi **glisser des fichiers n'importe où dans la fenêtre** (s'ils ne conviennent pas à l'outil ouvert, PredF ouvre le bon), ou les ouvrir avec <kbd>Ctrl</kbd> + <kbd>O</kbd>. Rien n'est jamais écrasé : chaque résultat est enregistré là où vous le choisissez, puis un bandeau propose **Ouvrir** et **Afficher dans le dossier**.
 
 | Outil | Ce qu'il fait |
 |---|---|
 | **Fusionner** | PDF et images dans l'ordre de la liste (glisser pour réordonner, tri par nom). Pour chaque PDF, une sélection de pages facultative : `1-3, 5, 8-fin`, `paires`, `impaires`, `7-2` (ordre inverse). Format et marges des pages d'images. |
 | **Organiser** | Les pages en miniatures : sélection (Ctrl : plusieurs, Maj : une plage), déplacer en glissant, pivoter, dupliquer, supprimer, insérer une page blanche, inverser l'ordre, ajouter un autre PDF à la fin, annuler / rétablir (100 étapes). Enregistrer tout, ou **extraire la sélection**. Raccourcis : <kbd>R</kbd> / <kbd>Maj</kbd>+<kbd>R</kbd>, <kbd>Suppr</kbd>, <kbd>Ctrl</kbd>+<kbd>A</kbd>, <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd>, <kbd>Ctrl</kbd>+<kbd>S</kbd>. Taille des miniatures réglable. |
+| **Modifier** | Édition complète d'un PDF, page affichée en grand, ajouts posés par-dessus puis écrits dans le document d'origine (signets, liens, formulaires et propriétés gardés). Voir ci-dessous. |
 | **Découper** | Toutes les N pages, par plages (`1-3, 4-8, 9-fin` : un fichier par élément), une page par fichier, ou extraction de pages dans un seul fichier. Aperçu coloré : chaque page porte la couleur et le numéro du fichier qui la recevra. |
 | **Images → PDF** | JPEG, PNG, WebP, GIF, BMP ; une image par page. Format A4 / A3 / A5 / Letter ou aux proportions de l'image, orientation auto / portrait / paysage, marges. Rotation par image ; les photos de téléphone sont remises à l'endroit (orientation EXIF). |
 | **PDF → Images** | Chaque page en PNG ou JPEG (qualité réglable), à 72, 150 ou 300 ppp, dans le dossier choisi. Ou **le texte** du PDF : aperçu, copie, enregistrement `.txt` (UTF-8, lisible dans le Bloc-notes). Pas de reconnaissance de caractères pour les scans. |
 | **Compresser** | *Sans perte* (structure réécrite, texte intact) ou *Équilibrée* / *Forte* / *Maximale* (pages redessinées en JPEG à 150 / 110 / 72 ppp : fort gain sur les scans, texte non sélectionnable). Avant / après comparés avant d'enregistrer ; PredF prévient si le résultat est plus lourd. |
 | **Finitions** | Numéros de page (6 positions, 5 formats dont « Page 1 sur 12 », numéro de départ, taille, sans numéro sur la couverture), filigrane (texte, couleur, taille, diagonale ou horizontal, opacité), propriétés (titre, auteur, sujet, mots-clés, ou tout effacer). **Aperçu en direct** de n'importe quelle page. Les pages pivotées sont gérées : numéros et filigrane restent droits. |
+
+### Modifier
+
+Le PDF s'affiche en grand (zoom, défilement des pages, miniatures à gauche) ; les propriétés de l'outil ou de l'élément sélectionné sont à droite. Raccourcis : une lettre par outil (indiquée au survol), <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd> (100 étapes), <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd> / <kbd>D</kbd>, <kbd>Suppr</kbd>, flèches (Maj : 10 points), <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> et <kbd>Ctrl</kbd>+molette pour le zoom, <kbd>Ctrl</kbd>+<kbd>S</kbd> pour enregistrer.
+
+| Outil | Ce qu'il fait |
+|---|---|
+| **Modifier le texte** | Les lignes du PDF s'encadrent ; un clic permet de les réécrire. Police (famille, gras, italique d'après le nom de la police du PDF), taille et couleur sont reprises au plus près. À l'enregistrement, l'**ancien texte est retiré du fichier** (instructions de texte du contenu de la page) ; si une ligne ne peut pas l'être (police aux largeurs inconnues, texte dans un objet imbriqué), elle est recouverte d'un cache de la couleur du fond. |
+| **Texte** | Texte libre : 6 familles (Arial, Calibri, Verdana, Times New Roman, Georgia, Courier New, polices du système intégrées au PDF : tous les accents et symboles, ✓ ★ → via une police de secours), taille, gras, italique, souligné, couleur, alignement ; largeur automatique ou fixe (retour à la ligne). Les lignes affichées sont celles écrites dans le PDF. |
+| **Image**, **Signature** | Photo ou image (orientation de l'appareil appliquée), signature dessinée à la souris, au stylet ou au doigt, mémorisée si on le souhaite. Redimensionnement aux coins en gardant les proportions. |
+| **Dessin**, **Surligner**, **Rectangle**, **Ellipse**, **Ligne**, **Flèche** | Couleur, épaisseur, remplissage, opacité ; Maj pour les carrés, cercles et angles à 45°. |
+| **Masquer** | Cache de couleur (blanc par défaut) : recouvre seulement, le contenu reste dans le fichier. |
+| **Caviarder** | Suppression définitive : à l'enregistrement, chaque page caviardée devient une image (200 ppp) ; son texte, ses images et ses annotations disparaissent du fichier. |
+| **Formulaire** | Les champs du PDF (texte, cases, boutons radio, listes) se remplissent directement sur la page ; option « Aplatir » (réponses définitives). |
+| **Pages** | Dans les miniatures : monter, descendre, dupliquer (avec ses ajouts), insérer une page blanche, supprimer. |
+
+Le résultat est enregistré dans un nouveau fichier (`nom_modifie.pdf` proposé) : l'original n'est jamais modifié. Les pages supprimées et les anciennes versions ne restent pas dans le fichier.
 
 ### Assistant IA
 
@@ -82,12 +100,14 @@ PredF/
 ├── preload.js            # pont contextBridge minimal (window.predf)
 ├── preload-splash.js     # pont de l'écran de chargement
 ├── lib/engine.js         # moteur PDF (pdf-lib) : construire, fusionner, images, compression, finitions
+├── lib/edit.js           # outil Modifier : ajouts, pages, formulaire, caviardage (pdf-lib, polices du système)
+├── lib/textremove.js     # outil Modifier : retrait du texte d'origine d'une ligne réécrite
 ├── lib/ranges.js         # saisie des pages (partagée page / processus principal)
 ├── lib/ai.js             # Assistant IA : clé chiffrée, requête à l'API Claude en streaming
 ├── lib/localai.js        # Assistant IA : IA locale gratuite via Ollama (état, téléchargement, rédaction)
 ├── lib/markdown.js       # lecture du Markdown produit par l'IA (aperçu et PDF)
 ├── lib/mdpdf.js          # mise en page Markdown → PDF
-├── test/                 # tests (node:test) : engine.test.js, assistant.test.js
+├── test/                 # tests (node:test) : engine.test.js, edit.test.js, assistant.test.js
 ├── build/icon.png        # icône de l'application
 └── renderer/
     ├── index.html        # page (CSP stricte, hors ligne)

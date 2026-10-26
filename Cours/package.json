@@ -1,7 +1,7 @@
 {
   "name": "cours",
   "productName": "Cours",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Les résumés des cours de la formation en PDF, classés par partie (M.Julia, A.Julia, Microsoft Office) : aperçu, visionneuse et téléchargement.",
   "main": "main.js",
   "author": "WaynneK",

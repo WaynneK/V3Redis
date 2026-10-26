@@ -8,6 +8,7 @@ import { initPdf } from './pdfview.js';
 import * as merge from './tools/merge.js';
 import * as organize from './tools/organize.js';
 import * as split from './tools/split.js';
+import * as edit from './tools/edit.js';
 import * as images from './tools/images.js';
 import * as exporter from './tools/export.js';
 import * as compress from './tools/compress.js';
@@ -18,6 +19,7 @@ const TOOLS = [
   { id: 'merge', group: 'Assembler', name: 'Fusionner', hint: 'Plusieurs fichiers en un', title: 'Fusionner des PDF', desc: 'Assemblez des PDF et des images dans l\'ordre de votre choix, en gardant toutes les pages ou seulement certaines.', icon: 'merge', module: merge },
   { id: 'organize', group: 'Assembler', name: 'Organiser', hint: 'Ordre, rotation, suppression', title: 'Organiser les pages', desc: 'Déplacez, pivotez, dupliquez ou supprimez des pages, ajoutez des pages blanches, puis enregistrez.', icon: 'organize', module: organize },
   { id: 'split', group: 'Assembler', name: 'Découper', hint: 'Séparer en plusieurs fichiers', title: 'Découper un PDF', desc: 'Séparez un PDF en plusieurs fichiers ou extrayez seulement les pages utiles.', icon: 'split', module: split },
+  { id: 'edit', group: 'Modifier', name: 'Modifier', hint: 'Texte, images, signature, formulaire', title: 'Modifier un PDF', desc: 'Réécrivez le texte, ajoutez texte, images, signature, formes et surlignage, remplissez le formulaire, caviardez, gérez les pages.', icon: 'edit', module: edit },
   { id: 'images', group: 'Convertir', name: 'Images → PDF', hint: 'Photos et scans en PDF', title: 'Images en PDF', desc: 'Transformez vos photos et images en un PDF propre, une image par page.', icon: 'images', module: images },
   { id: 'export', group: 'Convertir', name: 'PDF → Images', hint: 'Pages en images ou en texte', title: 'PDF en images ou en texte', desc: 'Enregistrez chaque page en image PNG ou JPEG, ou récupérez le texte du document.', icon: 'export', module: exporter },
   { id: 'compress', group: 'Améliorer', name: 'Compresser', hint: 'Alléger un PDF', title: 'Compresser un PDF', desc: 'Réduisez le poids d\'un PDF pour l\'envoyer ou l\'archiver, en comparant avant d\'enregistrer.', icon: 'compress', module: compress },
@@ -217,7 +219,7 @@ function initKeys() {
   document.addEventListener('keydown', async (e) => {
     if (isBusy()) return; // traitement en cours
     const ctrl = (e.ctrlKey || e.metaKey) && !e.altKey;
-    if (ctrl && /^[1-8]$/.test(e.key)) {
+    if (ctrl && /^[1-9]$/.test(e.key)) {
       e.preventDefault();
       show(TOOLS[Number(e.key) - 1].id);
       return;
